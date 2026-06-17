@@ -1,5 +1,6 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Uptime Taskbar App" 
            Manufacturer="Sourajit" 
            Version="1.0.0" 
@@ -8,8 +9,24 @@
            
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    
+    <!-- Auto-launch configuration on finish dialog -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Uptime Taskbar App" />
+    <CustomAction Id="LaunchApplication" FileRef="MainExecutableFile" ExeCommand="" Execute="immediate" Return="asyncNoWait" Impersonate="true" />
+
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
            
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <!-- Detect and close the application if it is running during installation, uninstallation, or upgrade -->
+    <util:CloseApplication Id="CloseApp" 
+                           Target="UptimeTaskbarApp.exe" 
+                           CloseMessage="yes" 
+                           TerminateProcess="1" 
+                           RebootPrompt="no" 
+                           PromptToContinue="no" />
 
     <!-- Embed the cab file inside the MSI -->
     <MediaTemplate EmbedCab="yes" />
@@ -23,7 +40,7 @@
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="a4933705-797f-4df5-a19a-2a87df6a8f5d">
         <!-- Path to our published standalone exe (relative to UptimeTaskbarApp/Setup) -->
-        <File Source="..\bin\Release\net10.0-windows\win-x64\publish\UptimeTaskbarApp.exe" KeyPath="yes" />
+        <File Id="MainExecutableFile" Source="..\bin\Release\net10.0-windows\win-x64\publish\UptimeTaskbarApp.exe" KeyPath="yes" />
         
         <!-- Add a Start Menu Shortcut -->
         <Shortcut Id="ApplicationStartMenuShortcut" 
