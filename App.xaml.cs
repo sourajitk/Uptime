@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Text;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
@@ -396,22 +397,24 @@ namespace UptimeTaskbarApp
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent);
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                try
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                // Use White pen with thickness of 2 pixels matching Fluent outline style
+                using (Pen pen = new Pen(Color.White, 2f))
                 {
-                    // \uE917 is the modern Windows 11 outlined Clock glyph in Segoe Fluent Icons
-                    using var font = new Font("Segoe Fluent Icons", 20, System.Drawing.FontStyle.Regular);
-                    using var brush = new SolidBrush(Color.White);
-                    string clockGlyph = "\uE917";
-                    var sz = g.MeasureString(clockGlyph, font);
-                    g.DrawString(clockGlyph, font, brush,
-                        (32 - sz.Width) / 2, (32 - sz.Height) / 2);
-                }
-                catch
-                {
-                    using var font = new Font("Segoe UI", 16, System.Drawing.FontStyle.Regular);
-                    using var brush = new SolidBrush(Color.White);
-                    g.DrawString("UP", font, brush, 0, 0);
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
+                    pen.LineJoin = LineJoin.Round;
+
+                    // Draw outer clock face circle (diameter 26, centered with 3px margins)
+                    g.DrawEllipse(pen, 3f, 3f, 26f, 26f);
+
+                    // Draw hands from center (16, 16)
+                    // Hour hand: points to 3 o'clock (right, length 6.5)
+                    g.DrawLine(pen, 16f, 16f, 22.5f, 16f);
+
+                    // Minute hand: points to 12 o'clock (up, length 7.5)
+                    g.DrawLine(pen, 16f, 16f, 16f, 8.5f);
                 }
             }
             return bmp.GetHicon();
