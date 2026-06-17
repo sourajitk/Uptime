@@ -3,5 +3,85 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
+        <!-- Dynamic color brushes updated in code-behind matching the system theme -->
+        <SolidColorBrush x:Key="MenuBackgroundBrush" Color="#202020" />
+        <SolidColorBrush x:Key="MenuBorderBrush" Color="#404040" />
+        <SolidColorBrush x:Key="MenuForegroundBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="MenuHoverBrush" Color="#33FFFFFF" />
+        <SolidColorBrush x:Key="MenuCheckBrush" Color="#60CDFF" />
+
+        <!-- Windows 11 Modern Context Menu Style -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource MenuBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MenuForegroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="15" ShadowDepth="3" Opacity="0.4"/>
+                            </Border.Effect>
+                            <ItemsPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Windows 11 Modern MenuItem Style -->
+        <Style TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{DynamicResource MenuForegroundBrush}" />
+            <Setter Property="Padding" Value="10,6,10,6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Bd" Padding="{TemplateBinding Padding}" CornerRadius="4" Background="Transparent" Margin="2">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24" SharedSizeGroup="MenuItemIconColumnGroup"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <!-- Checkmark Glyph -->
+                                <Path x:Name="CheckGlyph" 
+                                      Data="M 1,4.5 L 4,7.5 L 9,1.5" 
+                                      Stroke="{DynamicResource MenuCheckBrush}" 
+                                      StrokeThickness="2" 
+                                      Visibility="Collapsed" 
+                                      VerticalAlignment="Center" 
+                                      HorizontalAlignment="Left"
+                                      Margin="4,0,0,0"/>
+
+                                <ContentPresenter Grid.Column="1" 
+                                                  ContentSource="Header" 
+                                                  RecognizesAccessKey="True" 
+                                                  Margin="8,0,12,0" 
+                                                  VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource MenuHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>
