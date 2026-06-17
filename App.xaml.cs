@@ -133,6 +133,7 @@ namespace UptimeTaskbarApp
         private const uint WM_LBUTTONUP = 0x0202;
         private const uint WM_RBUTTONUP = 0x0205;
         private const uint WM_CONTEXTMENU = 0x007B;
+        private const uint WM_SETTINGCHANGE = 0x001A;
 
         private const uint MF_STRING = 0x00;
         private const uint MF_CHECKED = 0x0008;
@@ -153,6 +154,7 @@ namespace UptimeTaskbarApp
         private WndProcDelegate? _wndProc; // prevent GC collection of delegate
         private Window? _dummyWindow;
         private static Mutex? _appMutex;
+        private bool? _lastIsLightTheme;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -206,7 +208,9 @@ namespace UptimeTaskbarApp
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
             // Generate clock icon
-            _iconHandle = CreateClockIcon();
+            bool isLightTheme = IsSystemLightTheme();
+            _lastIsLightTheme = isLightTheme;
+            _iconHandle = CreateClockIcon(isLightTheme);
 
             // Setup NOTIFYICONDATA — identical to how Task Manager does it
             _nid = new NOTIFYICONDATA
@@ -247,6 +251,10 @@ namespace UptimeTaskbarApp
                     ShowContextMenu();
                     return IntPtr.Zero;
                 }
+            }
+            else if (msg == WM_SETTINGCHANGE)
+            {
+                UpdateTrayIcon();
             }
 
             return DefWindowProc(hWnd, msg, wParam, lParam);
@@ -388,9 +396,54 @@ namespace UptimeTaskbarApp
             _nid.uFlags = NIF_TIP | NIF_SHOWTIP;
             _nid.szTip = tooltipText;
             Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+
+            UpdateTrayIcon();
         }
 
-        private IntPtr CreateClockIcon()
+        private bool IsSystemLightTheme()
+        {
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                if (key != null)
+                {
+                    object? val = key.GetValue("SystemUsesLightTheme");
+                    if (val is int i)
+                    {
+                        return i == 1;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback to dark theme if registry read fails
+            }
+            return false;
+        }
+
+        private void UpdateTrayIcon()
+        {
+            bool isLightTheme = IsSystemLightTheme();
+            if (_lastIsLightTheme == isLightTheme)
+            {
+                return;
+            }
+
+            _lastIsLightTheme = isLightTheme;
+            IntPtr oldIcon = _iconHandle;
+            _iconHandle = CreateClockIcon(isLightTheme);
+
+            _nid.hIcon = _iconHandle;
+            _nid.uFlags = NIF_ICON;
+            Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+
+            if (oldIcon != IntPtr.Zero)
+            {
+                DestroyIcon(oldIcon);
+            }
+        }
+
+        private IntPtr CreateClockIcon(bool isLightTheme)
         {
             // Support 32x32 canvas for high-DPI crisp rendering on Windows 11
             Bitmap bmp = new Bitmap(32, 32);
@@ -399,8 +452,10 @@ namespace UptimeTaskbarApp
                 g.Clear(Color.Transparent);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                // Use White pen with thickness of 2 pixels matching Fluent outline style
-                using (Pen pen = new Pen(Color.White, 2f))
+                Color iconColor = isLightTheme ? Color.FromArgb(0x1F, 0x1F, 0x1F) : Color.White;
+
+                // Use pen with thickness of 2 pixels matching Fluent outline style
+                using (Pen pen = new Pen(iconColor, 2f))
                 {
                     pen.StartCap = LineCap.Round;
                     pen.EndCap = LineCap.Round;
