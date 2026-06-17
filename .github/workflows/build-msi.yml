@@ -1,0 +1,33 @@
+name: Build and Package MSI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Publish Application (Release)
+      run: dotnet publish UptimeTaskbarApp.csproj -c Release
+
+    - name: Build MSI Setup Package (Release)
+      run: dotnet build Setup/Setup.wixproj -c Release
+
+    - name: Upload Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: UptimeTaskbarAppSetup
+        path: Setup/bin/x64/Release/UptimeTaskbarAppSetup.msi
