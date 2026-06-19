@@ -267,11 +267,11 @@ namespace UptimeTaskbarApp
 
             var menu = new ContextMenu();
 
-            var startItem = new MenuItem 
-            { 
-                Header = "Start at Login", 
-                IsCheckable = true, 
-                IsChecked = IsStartupEnabled() 
+            var startItem = new MenuItem
+            {
+                Header = "Start at Login",
+                IsCheckable = true,
+                IsChecked = IsStartupEnabled()
             };
             startItem.Click += (s, e) => SetStartup(startItem.IsChecked);
 
@@ -287,11 +287,11 @@ namespace UptimeTaskbarApp
             };
             authorItem.Click += (s, e) => OpenUrl("https://sourajitk.github.io/");
 
-            var exitItem = new MenuItem 
-            { 
-                Header = "Exit" 
+            var exitItem = new MenuItem
+            {
+                Header = "Exit"
             };
-            exitItem.Click += (s, e) => 
+            exitItem.Click += (s, e) =>
             {
                 Cleanup();
                 Dispatcher.BeginInvoke(() => Current.Shutdown());
@@ -306,7 +306,7 @@ namespace UptimeTaskbarApp
 
             // Get mouse cursor position
             GetCursorPos(out POINT pt);
-            
+
             // Position the dummy window near the mouse
             if (_dummyWindow != null)
             {
@@ -482,7 +482,7 @@ namespace UptimeTaskbarApp
                 g.Clear(Color.Transparent);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                Color iconColor = isLightTheme ? Color.FromArgb(0x1F, 0x1F, 0x1F) : Color.White;
+                Color iconColor = isLightTheme ? Color.Black : Color.White;
 
                 // Use pen with thickness of 2 pixels matching Fluent outline style
                 using (Pen pen = new Pen(iconColor, 2f))
@@ -511,7 +511,7 @@ namespace UptimeTaskbarApp
             Shell_NotifyIcon(NIM_DELETE, ref _nid);
             if (_iconHandle != IntPtr.Zero) DestroyIcon(_iconHandle);
             if (_messageWindow != IntPtr.Zero) DestroyWindow(_messageWindow);
-            
+
             if (_dummyWindow != null)
             {
                 _dummyWindow.Close();

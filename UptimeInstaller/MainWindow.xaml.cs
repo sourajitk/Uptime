@@ -292,7 +292,7 @@ namespace UptimeInstaller
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        MessageBox.Show($"An error occurred during installation:\n\n{ex.Message}", 
+                        MessageBox.Show($"An error occurred during installation:\n\n{ex.Message}",
                             "Installation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
                         _currentPage = 2; // Return to selection
                         UpdateWizardLayout();
@@ -326,7 +326,7 @@ namespace UptimeInstaller
             // Jump to the Installing page
             _currentPage = 3;
             UpdateWizardLayout();
-            
+
             string installPath = TxtInstallPath.Text.Trim();
             if (string.IsNullOrEmpty(installPath))
             {
@@ -387,7 +387,7 @@ namespace UptimeInstaller
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        MessageBox.Show($"An error occurred during uninstallation:\n\n{ex.Message}", 
+                        MessageBox.Show($"An error occurred during uninstallation:\n\n{ex.Message}",
                             "Uninstallation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
                         _currentPage = 0; // Return to welcome/upgrade
                         UpdateWizardLayout();
@@ -401,7 +401,7 @@ namespace UptimeInstaller
             try
             {
                 string startMenuPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Programs), 
+                    Environment.GetFolderPath(Environment.SpecialFolder.Programs),
                     "Uptime.lnk");
                 if (File.Exists(startMenuPath))
                 {
@@ -480,7 +480,7 @@ namespace UptimeInstaller
             try
             {
                 string startMenuPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Programs), 
+                    Environment.GetFolderPath(Environment.SpecialFolder.Programs),
                     "Uptime.lnk");
 
                 // Use native shell link COM wrapper
