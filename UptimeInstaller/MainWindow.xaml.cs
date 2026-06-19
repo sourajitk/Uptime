@@ -169,6 +169,12 @@ namespace UptimeInstaller
                 BtnNext.Content = "Finish";
                 BtnNext.IsEnabled = true;
             }
+
+            // Toggle BtnUninstall visibility (only visible on Welcome page in upgrade flow)
+            if (BtnUninstall != null)
+            {
+                BtnUninstall.Visibility = (_currentPage == 0 && _isUpgradeFlow) ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         private void Next_Click(object sender, RoutedEventArgs e)
@@ -302,6 +308,107 @@ namespace UptimeInstaller
                 TxtStatus.Text = statusText;
                 InstallProgressBar.Value = progressValue;
             });
+        }
+
+        private async void Uninstall_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBoxResult confirm = MessageBox.Show(
+                "Are you sure you want to completely uninstall Uptime Taskbar App?",
+                "Confirm Uninstallation",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            // Jump to the Installing page
+            _currentPage = 3;
+            UpdateWizardLayout();
+            
+            string installPath = TxtInstallPath.Text.Trim();
+            if (string.IsNullOrEmpty(installPath))
+            {
+                installPath = _defaultInstallFolder;
+            }
+
+            InstallProgressBar.Value = 0;
+
+            await Task.Run(async () =>
+            {
+                try
+                {
+                    // 1. Terminate running processes
+                    UpdateStatus("Closing running instances...", 20);
+                    KillRunningInstances("UptimeTaskbarApp");
+                    KillRunningInstances("Uptime");
+                    await Task.Delay(1000);
+
+                    // 2. Remove registry startup key
+                    UpdateStatus("Removing startup configurations...", 40);
+                    ConfigureStartup("", false);
+                    await Task.Delay(500);
+
+                    // 3. Remove Start Menu Shortcut
+                    UpdateStatus("Removing shortcuts...", 60);
+                    RemoveStartMenuShortcut();
+                    await Task.Delay(500);
+
+                    // 4. Delete files and parent folder
+                    UpdateStatus("Deleting files...", 80);
+                    if (Directory.Exists(installPath))
+                    {
+                        CleanDirectory(installPath);
+                        try
+                        {
+                            Directory.Delete(installPath, true);
+                        }
+                        catch { /* Ignore folder deletion failure if minor */ }
+                    }
+                    await Task.Delay(500);
+
+                    UpdateStatus("Finalizing...", 100);
+                    await Task.Delay(300);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        // Customize Completed page for uninstallation
+                        CompletedTitle.Text = "Uninstallation Completed";
+                        CompletedDescription.Text = "Uptime Taskbar App has been successfully removed from your computer.";
+                        ChkLaunchOnFinish.IsChecked = false;
+                        ChkLaunchOnFinish.Visibility = Visibility.Collapsed;
+
+                        _currentPage = 4;
+                        UpdateWizardLayout();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show($"An error occurred during uninstallation:\n\n{ex.Message}", 
+                            "Uninstallation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                        _currentPage = 0; // Return to welcome/upgrade
+                        UpdateWizardLayout();
+                    });
+                }
+            });
+        }
+
+        private void RemoveStartMenuShortcut()
+        {
+            try
+            {
+                string startMenuPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Programs), 
+                    "Uptime Taskbar App.lnk");
+                if (File.Exists(startMenuPath))
+                {
+                    File.Delete(startMenuPath);
+                }
+            }
+            catch { /* Ignore shortcut deletion failures */ }
         }
 
         private void KillRunningInstances(string processName)

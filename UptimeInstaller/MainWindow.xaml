@@ -336,8 +336,8 @@
                             <Path Data="M 28 38 L 34 44 L 48 28" Stroke="#107C41" StrokeThickness="4" StrokeEndLineCap="Round" StrokeStartLineCap="Round"/>
                         </Grid>
                         
-                        <TextBlock Text="Installation Completed" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" FontFamily="Segoe UI Variable Display, Segoe UI" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                        <TextBlock Text="The Uptime Taskbar App has been successfully installed on your computer." 
+                        <TextBlock x:Name="CompletedTitle" Text="Installation Completed" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" FontFamily="Segoe UI Variable Display, Segoe UI" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                        <TextBlock x:Name="CompletedDescription" Text="The Uptime Taskbar App has been successfully installed on your computer." 
                                    Foreground="#CCCCCC" FontSize="13.5" FontFamily="Segoe UI Variable Text, Segoe UI" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center"/>
                     </StackPanel>
 
@@ -360,8 +360,9 @@
                     <!-- Left button: Back -->
                     <Button Grid.Column="0" x:Name="BtnBack" Content="Back" Click="Back_Click" Style="{StaticResource ModernButton}" Width="90" Height="34" VerticalAlignment="Center" Visibility="Collapsed"/>
                     
-                    <!-- Right buttons: Next / Cancel / Install / Finish -->
+                    <!-- Right buttons: Next / Cancel / Install / Finish / Uninstall -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BtnUninstall" Content="Uninstall" Click="Uninstall_Click" Style="{StaticResource ModernButton}" Width="90" Height="34" Margin="0,0,8,0" Visibility="Collapsed"/>
                         <Button x:Name="BtnCancel" Content="Cancel" Click="Cancel_Click" Style="{StaticResource ModernButton}" Width="90" Height="34" Margin="0,0,8,0"/>
                         <Button x:Name="BtnNext" Content="Next" Click="Next_Click" Style="{StaticResource AccentButton}" Width="90" Height="34"/>
                     </StackPanel>
