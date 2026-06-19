@@ -79,8 +79,8 @@ namespace UptimeInstaller
                     TxtInstallPath.Text = detectedPath;
 
                     WelcomeTitle.Text = "Upgrade Uptime";
-                    WelcomeDescription.Text = $"An existing installation of Uptime Taskbar App was detected at:\n{_existingInstallPath}\n\nClick Upgrade to update to the latest version.";
-                    WelcomeFooter.Text = "Click Upgrade to continue.";
+                    WelcomeDescription.Text = $"An existing installation of Uptime was detected at:\n{_existingInstallPath}\n\nClick Upgrade to update to the latest version.";
+                    WelcomeFooter.Text = "Click Upgrade to continue. If you want to uninstall, press on uninstall";
                     BtnNext.Content = "Upgrade";
                 }
             }
@@ -313,7 +313,7 @@ namespace UptimeInstaller
         private async void Uninstall_Click(object sender, RoutedEventArgs e)
         {
             MessageBoxResult confirm = MessageBox.Show(
-                "Are you sure you want to completely uninstall Uptime Taskbar App?",
+                "Are you sure you want to completely uninstall Uptime?",
                 "Confirm Uninstallation",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
@@ -375,7 +375,7 @@ namespace UptimeInstaller
                     {
                         // Customize Completed page for uninstallation
                         CompletedTitle.Text = "Uninstallation Completed";
-                        CompletedDescription.Text = "Uptime Taskbar App has been successfully removed from your computer.";
+                        CompletedDescription.Text = "Uptime has been successfully removed from your computer.";
                         ChkLaunchOnFinish.IsChecked = false;
                         ChkLaunchOnFinish.Visibility = Visibility.Collapsed;
 
@@ -402,7 +402,7 @@ namespace UptimeInstaller
             {
                 string startMenuPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.Programs), 
-                    "Uptime Taskbar App.lnk");
+                    "Uptime.lnk");
                 if (File.Exists(startMenuPath))
                 {
                     File.Delete(startMenuPath);
@@ -481,10 +481,10 @@ namespace UptimeInstaller
             {
                 string startMenuPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.Programs), 
-                    "Uptime Taskbar App.lnk");
+                    "Uptime.lnk");
 
                 // Use native shell link COM wrapper
-                ShellLinkHelper.CreateShortcut(startMenuPath, exePath, "Monitors system uptime in the taskbar", workingDir);
+                ShellLinkHelper.CreateShortcut(startMenuPath, exePath, "Monitor system uptime from the taskbar!", workingDir);
             }
             catch { /* Ignore shortcut failures */ }
         }

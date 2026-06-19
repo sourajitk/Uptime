@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Uptime Taskbar App Setup" 
+        Title="Uptime" 
         Width="540" Height="400"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -216,7 +216,7 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
                         <Path Data="M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 12.5 13 H 7 V 11.5 H 11 V 7 H 12.5 V 13 Z" 
                               Fill="#0078D4" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Uptime Taskbar App Setup" Foreground="#AAAAAA" FontSize="11.5" FontFamily="Segoe UI Variable Text, Segoe UI" VerticalAlignment="Center"/>
+                        <TextBlock Text="Uptime Setup" Foreground="#AAAAAA" FontSize="11.5" FontFamily="Segoe UI Variable Text, Segoe UI" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Window Control Buttons -->
@@ -337,12 +337,12 @@
                         </Grid>
                         
                         <TextBlock x:Name="CompletedTitle" Text="Installation Completed" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" FontFamily="Segoe UI Variable Display, Segoe UI" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                        <TextBlock x:Name="CompletedDescription" Text="The Uptime Taskbar App has been successfully installed on your computer." 
+                        <TextBlock x:Name="CompletedDescription" Text="Uptime has been successfully installed on your computer." 
                                    Foreground="#CCCCCC" FontSize="13.5" FontFamily="Segoe UI Variable Text, Segoe UI" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center"/>
                     </StackPanel>
 
                     <CheckBox Grid.Row="1" x:Name="ChkLaunchOnFinish" IsChecked="True" Style="{StaticResource ModernCheckBox}" HorizontalAlignment="Center" Margin="0,0,0,12">
-                        <TextBlock Text="Launch Uptime Taskbar App now" Foreground="#CCCCCC" Margin="6,0,0,0"/>
+                        <TextBlock Text="Launch Uptime now" Foreground="#CCCCCC" Margin="6,0,0,0"/>
                     </CheckBox>
                 </Grid>
 
