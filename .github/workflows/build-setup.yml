@@ -1,4 +1,4 @@
-name: Build, Package, and Release MSI
+name: Build, Package, and Release Setup
 
 on:
   push:
@@ -28,19 +28,22 @@ jobs:
     - name: Publish Application (Release)
       run: dotnet publish UptimeTaskbarApp.csproj -c Release
 
-    - name: Build MSI Setup Package (Release)
-      run: dotnet build Setup/Setup.wixproj -c Release
+    - name: Publish Setup Installer (Release)
+      run: dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release
+
+    - name: Rename Installer Executable
+      run: Move-Item -Path UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeInstaller.exe -Destination UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
         name: UptimeTaskbarAppSetup
-        path: Setup/bin/x64/Release/UptimeTaskbarAppSetup.msi
+        path: UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
 
     - name: Create and Publish GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: Setup/bin/x64/Release/UptimeTaskbarAppSetup.msi
+        files: UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

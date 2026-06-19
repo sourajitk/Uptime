@@ -37,6 +37,13 @@
             </Setter>
         </Style>
 
+        <!-- Windows 11 Modern Separator Style -->
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="{DynamicResource MenuBorderBrush}" />
+            <Setter Property="Margin" Value="4,4,4,4" />
+            <Setter Property="Height" Value="1" />
+        </Style>
+
         <!-- Windows 11 Modern MenuItem Style -->
         <Style TargetType="MenuItem">
             <Setter Property="Foreground" Value="{DynamicResource MenuForegroundBrush}" />
