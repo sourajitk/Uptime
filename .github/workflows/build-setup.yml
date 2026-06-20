@@ -15,6 +15,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64]
 
     steps:
     - name: Checkout Code
@@ -26,24 +29,24 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Publish Application (Release)
-      run: dotnet publish UptimeTaskbarApp.csproj -c Release
+      run: dotnet publish UptimeTaskbarApp.csproj -c Release -r ${{ matrix.rid }}
 
     - name: Publish Setup Installer (Release)
-      run: dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release
+      run: dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release -r ${{ matrix.rid }}
 
     - name: Rename Installer Executable
-      run: Move-Item -Path UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeInstaller.exe -Destination UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
+      run: Move-Item -Path UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeInstaller.exe -Destination UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: UptimeTaskbarAppSetup
-        path: UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
+        name: UptimeTaskbarAppSetup-${{ matrix.rid }}
+        path: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
 
     - name: Create and Publish GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/UptimeTaskbarAppSetup.exe
+        files: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

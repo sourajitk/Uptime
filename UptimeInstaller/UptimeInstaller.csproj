@@ -14,10 +14,11 @@
     <IncludeNativeLibrariesForSelfContained>true</IncludeNativeLibrariesForSelfContained>
     <DebugSymbols>false</DebugSymbols>
     <DebugType>none</DebugType>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\bin\Release\net10.0-windows\win-x64\publish\UptimeTaskbarApp.exe">
+    <EmbeddedResource Include="..\bin\Release\net10.0-windows\$(RuntimeIdentifier)\publish\UptimeTaskbarApp.exe">
       <Link>Resources\UptimeTaskbarApp.exe</Link>
     </EmbeddedResource>
   </ItemGroup>
