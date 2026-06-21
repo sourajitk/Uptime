@@ -13,4 +13,4 @@ Download the latest release from [Releases](https://github.com/sourajitk/Uptime/
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the Apache-2.0 License.
