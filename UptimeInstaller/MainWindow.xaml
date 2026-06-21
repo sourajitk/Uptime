@@ -243,12 +243,10 @@
 
                     <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center">
                         <!-- Centered stylized dynamic vector clock icon -->
-                        <Grid Width="72" Height="72" HorizontalAlignment="Center" Margin="0,0,0,16">
-                            <Ellipse Fill="#1F2A38" Stroke="#0078D4" StrokeThickness="3.5" Width="72" Height="72"/>
-                            <!-- Hands -->
-                            <Line X1="36" Y1="36" X2="52" Y2="36" Stroke="#0078D4" StrokeThickness="3.5" StrokeEndLineCap="Round"/>
-                            <Line X1="36" Y1="36" X2="36" Y2="18" Stroke="#0078D4" StrokeThickness="3.5" StrokeEndLineCap="Round"/>
-                        </Grid>
+                        <Path Data="M 36,1.75 A 34.25,34.25 0 1 1 35.99,1.75 Z M 36,36 L 47,36 M 36,36 L 36,18" 
+                              Fill="#1F2A38" Stroke="#0078D4" StrokeThickness="3.5" 
+                              StrokeEndLineCap="Round" StrokeStartLineCap="Round"
+                              Width="72" Height="72" HorizontalAlignment="Center" Margin="0,0,0,16"/>
                         
                         <TextBlock x:Name="WelcomeTitle" Text="Welcome to Uptime Setup" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" FontFamily="Segoe UI Variable Display, Segoe UI" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                         <TextBlock x:Name="WelcomeDescription" Text="Easily check your computer's uptime straight from your taskbar!" 
