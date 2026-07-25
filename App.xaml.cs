@@ -156,6 +156,7 @@ namespace UptimeTaskbarApp
         private Window? _dummyWindow;
         private static Mutex? _appMutex;
         private bool? _lastIsLightTheme;
+        private Icon? _loadedIcon;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -208,10 +209,10 @@ namespace UptimeTaskbarApp
                 0, 0, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
-            // Generate clock icon
+            // Load app icon (installer icon)
             bool isLightTheme = IsSystemLightTheme();
             _lastIsLightTheme = isLightTheme;
-            _iconHandle = CreateClockIcon(isLightTheme);
+            _iconHandle = LoadAppIcon();
 
             // Setup NOTIFYICONDATA — identical to how Task Manager does it
             _nid = new NOTIFYICONDATA
@@ -275,6 +276,12 @@ namespace UptimeTaskbarApp
             };
             startItem.Click += (s, e) => SetStartup(startItem.IsChecked);
 
+            var versionItem = new MenuItem
+            {
+                Header = $"Version {GetAppVersion()}",
+                IsEnabled = false
+            };
+
             var sourceItem = new MenuItem
             {
                 Header = "Source Code"
@@ -299,6 +306,7 @@ namespace UptimeTaskbarApp
 
             menu.Items.Add(startItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(versionItem);
             menu.Items.Add(sourceItem);
             menu.Items.Add(authorItem);
             menu.Items.Add(new Separator());
@@ -505,11 +513,64 @@ namespace UptimeTaskbarApp
             return bmp.GetHicon();
         }
 
+        private IntPtr LoadAppIcon()
+        {
+            try
+            {
+                string appDir = AppContext.BaseDirectory;
+                string iconPath = System.IO.Path.Combine(appDir, "Assets", "AppIcon.ico");
+                if (!System.IO.File.Exists(iconPath))
+                {
+                    iconPath = System.IO.Path.Combine(appDir, "AppIcon.ico");
+                }
+
+                if (System.IO.File.Exists(iconPath))
+                {
+                    _loadedIcon = new Icon(iconPath, 32, 32);
+                    return _loadedIcon.Handle;
+                }
+
+                string? procPath = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(procPath))
+                {
+                    _loadedIcon = Icon.ExtractAssociatedIcon(procPath);
+                    if (_loadedIcon != null)
+                    {
+                        return _loadedIcon.Handle;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback to generated icon
+            }
+
+            return CreateClockIcon(IsSystemLightTheme());
+        }
+
+        private string GetAppVersion()
+        {
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            if (version != null)
+            {
+                return $"{version.Major}.{version.Minor}.{version.Build}";
+            }
+            return "0.0.7";
+        }
+
         private void Cleanup()
         {
             _timer?.Stop();
             Shell_NotifyIcon(NIM_DELETE, ref _nid);
-            if (_iconHandle != IntPtr.Zero) DestroyIcon(_iconHandle);
+            if (_loadedIcon != null)
+            {
+                _loadedIcon.Dispose();
+                _loadedIcon = null;
+            }
+            else if (_iconHandle != IntPtr.Zero)
+            {
+                DestroyIcon(_iconHandle);
+            }
             if (_messageWindow != IntPtr.Zero) DestroyWindow(_messageWindow);
 
             if (_dummyWindow != null)
