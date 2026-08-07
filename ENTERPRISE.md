@@ -1,0 +1,84 @@
+# Enterprise Deployment Guide for Uptime
+
+This guide provides instructions for IT administrators deploying Uptime across corporate workstations using management tools such as Microsoft Intune, System Center Configuration Manager (SCCM/MCM), PDQ Deploy, or Group Policy (GPO).
+
+---
+
+## Installation Scopes
+
+Uptime supports two installation scopes:
+
+1. **Per-User Installation (Default for non-elevated users)**
+   - Target Folder: `%localappdata%\Programs\UptimeTaskbarApp`
+   - Startup Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+   - Start Menu Shortcut: `%appdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
+
+2. **System-Wide / All Users Installation (Recommended for Enterprise Management)**
+   - Target Folder: `%programfiles%\UptimeTaskbarApp`
+   - Startup Registry: `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
+   - Start Menu Shortcut: `%programdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
+   - Requires administrative privileges during installation.
+
+---
+
+## Command-Line Syntax
+
+The installer `UptimeTaskbarAppSetup-win-x64.exe` supports command-line switches for unattended and automated enterprise deployments.
+
+### Command-Line Options
+
+| Switch | Description |
+| :--- | :--- |
+| `/silent`, `/s`, `/quiet`, `/q` | Runs the installer headlessly without displaying a GUI window. Returns exit code `0` on success, `1` on failure. |
+| `/allusers`, `/all` | Forces system-wide installation to `Program Files` and `HKLM`. |
+| `/currentuser`, `/user` | Forces per-user installation to `LocalAppData` and `HKCU`. |
+| `/uninstall`, `/u` | Uninstalls Uptime. Can be combined with `/silent`. |
+| `/dir="C:\Path"` | Overrides default installation directory. |
+| `/launch` | Launches Uptime automatically after silent installation. |
+| `/nolaunch` | Default in silent mode. Prevents auto-launching after installation. |
+
+---
+
+## Deployment Examples
+
+### 1. Microsoft Intune / SCCM (System-Wide Silent Install)
+- **Install Command:**
+  ```cmd
+  UptimeTaskbarAppSetup-win-x64.exe /silent /allusers
+  ```
+- **Uninstall Command:**
+  ```cmd
+  UptimeTaskbarAppSetup-win-x64.exe /silent /uninstall /allusers
+  ```
+- **Detection Rule (File):**
+  - Path: `C:\Program Files\UptimeTaskbarApp`
+  - File: `UptimeTaskbarApp.exe`
+- **Detection Rule (Registry):**
+  - Key: `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`
+  - Value Name: `UptimeTaskbarApp`
+
+### 2. Per-User Silent Install
+- **Install Command:**
+  ```cmd
+  UptimeTaskbarAppSetup-win-x64.exe /silent /currentuser
+  ```
+- **Uninstall Command:**
+  ```cmd
+  UptimeTaskbarAppSetup-win-x64.exe /silent /uninstall /currentuser
+  ```
+
+---
+
+## Code Signing & Security Policies
+
+When deploying Uptime in environments with strict EDR or Windows Defender Application Control (WDAC) policies:
+
+1. **Digital Signatures:** Enterprise builds can be digitally signed using a corporate or EV Code Signing certificate.
+2. **Path Rule Whitelisting:** If using AppLocker or Software Restriction Policies, whitelist by publisher certificate or file path:
+   - System-wide: `C:\Program Files\UptimeTaskbarApp\UptimeTaskbarApp.exe`
+
+---
+
+## Licensing
+
+Uptime is open-source software licensed under the **Apache License 2.0**. Commercial use, internal corporate distribution, and automated deployments are permitted.

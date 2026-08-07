@@ -15,22 +15,40 @@ namespace UptimeInstaller
     public partial class MainWindow : Window
     {
         private int _currentPage = 0;
-        private string _defaultInstallFolder = "";
         private bool _isUpgradeFlow = false;
         private string _existingInstallPath = "";
+        private readonly InstallerEngine _engine;
 
-        public MainWindow()
+        public MainWindow() : this(new InstallerEngine())
         {
+        }
+
+        public MainWindow(InstallerEngine engine)
+        {
+            _engine = engine;
             InitializeComponent();
 
-            // Set default installation path to local user programs folder (non-admin friendly)
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            _defaultInstallFolder = Path.Combine(localAppData, "Programs", "UptimeTaskbarApp");
-            TxtInstallPath.Text = _defaultInstallFolder;
+            if (_engine.IsAllUsers)
+            {
+                if (RadioAllUsers != null) RadioAllUsers.IsChecked = true;
+            }
+            else
+            {
+                if (RadioCurrentUser != null) RadioCurrentUser.IsChecked = true;
+            }
+
+            TxtInstallPath.Text = _engine.GetTargetInstallPath();
 
             DetectExistingInstallation();
-
             UpdateWizardLayout();
+        }
+
+        private void InstallScope_Changed(object sender, RoutedEventArgs e)
+        {
+            if (RadioAllUsers == null || RadioCurrentUser == null || TxtInstallPath == null || _engine == null) return;
+
+            _engine.IsAllUsers = RadioAllUsers.IsChecked == true;
+            TxtInstallPath.Text = _engine.GetTargetInstallPath();
         }
 
         private void DetectExistingInstallation()
@@ -39,7 +57,7 @@ namespace UptimeInstaller
             {
                 string? detectedPath = null;
 
-                // 1. Check startup run registry key
+                // 1. Check HKCU startup run registry key
                 using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
                 {
                     if (key != null)
@@ -56,18 +74,41 @@ namespace UptimeInstaller
                     }
                 }
 
-                // 2. Fall back to checking default install path
+                // 2. Check HKLM startup run registry key
                 if (string.IsNullOrEmpty(detectedPath))
                 {
-                    string defaultExePath = Path.Combine(_defaultInstallFolder, "UptimeTaskbarApp.exe");
-                    string legacyExePath = Path.Combine(_defaultInstallFolder, "Uptime.exe");
-                    if (File.Exists(defaultExePath))
+                    using (RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
                     {
-                        detectedPath = _defaultInstallFolder;
+                        if (key != null)
+                        {
+                            string? val = key.GetValue("UptimeTaskbarApp") as string;
+                            if (!string.IsNullOrEmpty(val))
+                            {
+                                string cleanPath = val.Replace("\"", "").Trim();
+                                if (File.Exists(cleanPath))
+                                {
+                                    detectedPath = Path.GetDirectoryName(cleanPath);
+                                }
+                            }
+                        }
                     }
-                    else if (File.Exists(legacyExePath))
+                }
+
+                // 3. Fall back to checking default install paths
+                if (string.IsNullOrEmpty(detectedPath))
+                {
+                    string currentUserExe = Path.Combine(_engine.DefaultCurrentUserPath, "UptimeTaskbarApp.exe");
+                    string allUsersExe = Path.Combine(_engine.DefaultAllUsersPath, "UptimeTaskbarApp.exe");
+
+                    if (File.Exists(currentUserExe))
                     {
-                        detectedPath = _defaultInstallFolder;
+                        detectedPath = _engine.DefaultCurrentUserPath;
+                    }
+                    else if (File.Exists(allUsersExe))
+                    {
+                        detectedPath = _engine.DefaultAllUsersPath;
+                        _engine.IsAllUsers = true;
+                        if (RadioAllUsers != null) RadioAllUsers.IsChecked = true;
                     }
                 }
 
@@ -233,10 +274,11 @@ namespace UptimeInstaller
         {
             string installPath = TxtInstallPath.Text.Trim();
             bool enableStartup = ChkStartup.IsChecked == true;
+            bool isAllUsers = RadioAllUsers.IsChecked == true;
 
             if (string.IsNullOrEmpty(installPath))
             {
-                installPath = _defaultInstallFolder;
+                installPath = _engine.GetTargetInstallPath();
             }
 
             InstallProgressBar.Value = 0;
@@ -245,40 +287,34 @@ namespace UptimeInstaller
             {
                 try
                 {
-                    // 1. Terminate running processes
                     UpdateStatus("Closing running instances...", 10);
-                    KillRunningInstances("UptimeTaskbarApp");
-                    KillRunningInstances("Uptime");
-                    await Task.Delay(1000); // Give processes time to exit
+                    _engine.KillRunningInstances("UptimeTaskbarApp");
+                    _engine.KillRunningInstances("Uptime");
+                    await Task.Delay(500);
 
-                    // 2. Erase old folder completely to guarantee no old Uptime.exe remains
-                    UpdateStatus("Removing old files...", 30);
+                    UpdateStatus("Preparing target directory...", 30);
                     if (Directory.Exists(installPath))
                     {
-                        CleanDirectory(installPath);
+                        _engine.CleanDirectory(installPath);
                     }
                     else
                     {
                         Directory.CreateDirectory(installPath);
                     }
-                    await Task.Delay(500);
+                    await Task.Delay(300);
 
-                    // 3. Extract Embedded Executable
                     UpdateStatus("Extracting files...", 60);
                     string targetExePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
-                    ExtractEmbeddedApp(targetExePath);
-                    await Task.Delay(500);
+                    _engine.ExtractEmbeddedApp(targetExePath);
+                    await Task.Delay(300);
 
-                    // 4. Create Shortcuts
                     UpdateStatus("Creating shortcuts...", 80);
-                    CreateStartMenuShortcut(targetExePath, installPath);
+                    _engine.CreateStartMenuShortcut(targetExePath, installPath, isAllUsers);
 
-                    // 5. Configure Windows Startup Registry
                     UpdateStatus("Configuring startup settings...", 95);
-                    ConfigureStartup(targetExePath, enableStartup);
-                    await Task.Delay(500);
+                    _engine.ConfigureStartup(targetExePath, enableStartup, isAllUsers);
+                    await Task.Delay(300);
 
-                    // Finish
                     UpdateStatus("Finalizing...", 100);
                     await Task.Delay(300);
 
@@ -323,14 +359,14 @@ namespace UptimeInstaller
                 return;
             }
 
-            // Jump to the Installing page
             _currentPage = 3;
             UpdateWizardLayout();
 
             string installPath = TxtInstallPath.Text.Trim();
+            bool isAllUsers = RadioAllUsers.IsChecked == true;
             if (string.IsNullOrEmpty(installPath))
             {
-                installPath = _defaultInstallFolder;
+                installPath = _engine.GetTargetInstallPath();
             }
 
             InstallProgressBar.Value = 0;
@@ -339,41 +375,36 @@ namespace UptimeInstaller
             {
                 try
                 {
-                    // 1. Terminate running processes
                     UpdateStatus("Closing running instances...", 20);
-                    KillRunningInstances("UptimeTaskbarApp");
-                    KillRunningInstances("Uptime");
-                    await Task.Delay(1000);
+                    _engine.KillRunningInstances("UptimeTaskbarApp");
+                    _engine.KillRunningInstances("Uptime");
+                    await Task.Delay(500);
 
-                    // 2. Remove registry startup key
                     UpdateStatus("Removing startup configurations...", 40);
-                    ConfigureStartup("", false);
-                    await Task.Delay(500);
+                    _engine.ConfigureStartup("", false, isAllUsers);
+                    await Task.Delay(300);
 
-                    // 3. Remove Start Menu Shortcut
                     UpdateStatus("Removing shortcuts...", 60);
-                    RemoveStartMenuShortcut();
-                    await Task.Delay(500);
+                    _engine.RemoveStartMenuShortcut();
+                    await Task.Delay(300);
 
-                    // 4. Delete files and parent folder
                     UpdateStatus("Deleting files...", 80);
                     if (Directory.Exists(installPath))
                     {
-                        CleanDirectory(installPath);
+                        _engine.CleanDirectory(installPath);
                         try
                         {
                             Directory.Delete(installPath, true);
                         }
-                        catch { /* Ignore folder deletion failure if minor */ }
+                        catch { }
                     }
-                    await Task.Delay(500);
+                    await Task.Delay(300);
 
                     UpdateStatus("Finalizing...", 100);
                     await Task.Delay(300);
 
                     Dispatcher.Invoke(() =>
                     {
-                        // Customize Completed page for uninstallation
                         CompletedTitle.Text = "Uninstallation Completed";
                         CompletedDescription.Text = "Uptime has been successfully removed from your computer.";
                         ChkLaunchOnFinish.IsChecked = false;
@@ -389,126 +420,11 @@ namespace UptimeInstaller
                     {
                         MessageBox.Show($"An error occurred during uninstallation:\n\n{ex.Message}",
                             "Uninstallation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                        _currentPage = 0; // Return to welcome/upgrade
+                        _currentPage = 0;
                         UpdateWizardLayout();
                     });
                 }
             });
-        }
-
-        private void RemoveStartMenuShortcut()
-        {
-            try
-            {
-                string startMenuPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-                    "Uptime.lnk");
-                if (File.Exists(startMenuPath))
-                {
-                    File.Delete(startMenuPath);
-                }
-            }
-            catch { /* Ignore shortcut deletion failures */ }
-        }
-
-        private void KillRunningInstances(string processName)
-        {
-            foreach (var process in Process.GetProcessesByName(processName))
-            {
-                try
-                {
-                    process.Kill();
-                    process.WaitForExit(5000);
-                }
-                catch { /* Ignore access or state errors */ }
-            }
-        }
-
-        private void CleanDirectory(string path)
-        {
-            // First delete files
-            try
-            {
-                foreach (string file in Directory.GetFiles(path))
-                {
-                    File.Delete(file);
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new IOException($"Failed to delete files in the old installation folder: {ex.Message}", ex);
-            }
-
-            // Then delete subfolders
-            try
-            {
-                foreach (string subDir in Directory.GetDirectories(path))
-                {
-                    Directory.Delete(subDir, true);
-                }
-            }
-            catch { /* Ignore subfolder deletion failures if minor */ }
-        }
-
-        private void ExtractEmbeddedApp(string targetExePath)
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            string resourceName = assembly.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("UptimeTaskbarApp.exe")) ?? "";
-
-            if (string.IsNullOrEmpty(resourceName))
-            {
-                throw new Exception("Embedded UptimeTaskbarApp.exe was not found inside the installer resources.");
-            }
-
-            using (Stream? resourceStream = assembly.GetManifestResourceStream(resourceName))
-            {
-                if (resourceStream == null)
-                {
-                    throw new Exception("Embedded resource stream was empty.");
-                }
-
-                using (FileStream fileStream = new FileStream(targetExePath, FileMode.Create, FileAccess.Write))
-                {
-                    resourceStream.CopyTo(fileStream);
-                }
-            }
-        }
-
-        private void CreateStartMenuShortcut(string exePath, string workingDir)
-        {
-            try
-            {
-                string startMenuPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-                    "Uptime.lnk");
-
-                // Use native shell link COM wrapper
-                ShellLinkHelper.CreateShortcut(startMenuPath, exePath, "Monitor system uptime from the taskbar!", workingDir);
-            }
-            catch { /* Ignore shortcut failures */ }
-        }
-
-        private void ConfigureStartup(string exePath, bool enable)
-        {
-            try
-            {
-                using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
-                {
-                    if (key != null)
-                    {
-                        if (enable)
-                        {
-                            key.SetValue("UptimeTaskbarApp", $"\"{exePath}\"");
-                        }
-                        else
-                        {
-                            key.DeleteValue("UptimeTaskbarApp", false);
-                        }
-                    }
-                }
-            }
-            catch { /* Ignore registry permission errors if run under strict per-user sandbox */ }
         }
 
         private void FinishInstallation()
@@ -520,7 +436,7 @@ namespace UptimeInstaller
                     string installPath = TxtInstallPath.Text.Trim();
                     if (string.IsNullOrEmpty(installPath))
                     {
-                        installPath = _defaultInstallFolder;
+                        installPath = _engine.GetTargetInstallPath();
                     }
                     string exePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
                     if (File.Exists(exePath))
@@ -533,66 +449,10 @@ namespace UptimeInstaller
                         });
                     }
                 }
-                catch { /* Ignore launch errors */ }
+                catch { }
             }
 
             this.Close();
-        }
-    }
-
-    // ── Native Windows COM Shortcut Helper ──
-    internal static class ShellLinkHelper
-    {
-        [ComImport]
-        [Guid("00021401-0000-0000-C000-000000000046")]
-        internal class ShellLink { }
-
-        [ComImport]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        [Guid("000214F9-0000-0000-C000-000000000046")]
-        internal interface IShellLinkW
-        {
-            void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, out IntPtr pfd, int fFlags);
-            void GetIDList(out IntPtr ppidl);
-            void SetIDList(IntPtr pidl);
-            void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cchMaxName);
-            void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
-            void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cch);
-            void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
-            void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cchMaxPath);
-            void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
-            void GetHotkey(out short pwHotkey);
-            void SetHotkey(short wHotkey);
-            void GetShowCmd(out int piShowCmd);
-            void SetShowCmd(int iShowCmd);
-            void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath, int cch, out int piIcon);
-            void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
-            void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, int dwReserved);
-            void Resolve(IntPtr hwnd, int fFlags);
-            void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
-        }
-
-        [ComImport]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        [Guid("0000010b-0000-0000-C000-000000000046")]
-        internal interface IPersistFile
-        {
-            void GetClassID(out Guid pClassID);
-            void IsDirty();
-            void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, int dwMode);
-            void Save([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, [MarshalAs(UnmanagedType.Bool)] bool fRemember);
-            void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
-            void GetCurFile([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder ppszFileName);
-        }
-
-        public static void CreateShortcut(string shortcutPath, string targetPath, string description, string workingDir)
-        {
-            IShellLinkW link = (IShellLinkW)new ShellLink();
-            link.SetPath(targetPath);
-            link.SetDescription(description);
-            link.SetWorkingDirectory(workingDir);
-            IPersistFile file = (IPersistFile)link;
-            file.Save(shortcutPath, false);
         }
     }
 }

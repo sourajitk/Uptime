@@ -37,7 +37,7 @@
             <Setter Property="Foreground" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="#444444" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="Padding" Value="16,2" />
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Cursor" Value="Hand" />
@@ -156,6 +156,15 @@
 
         <!-- Modern Checkbox Style -->
         <Style x:Key="ModernCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E0E0E0" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <!-- Modern RadioButton Style -->
+        <Style x:Key="ModernRadioButton" TargetType="RadioButton">
             <Setter Property="Foreground" Value="#E0E0E0" />
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
             <Setter Property="FontSize" Value="13" />
@@ -287,9 +296,15 @@
                     <TextBlock Grid.Row="0" Text="Select Installation Folder" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" FontFamily="Segoe UI Variable Text, Segoe UI" Margin="0,0,0,8"/>
 
                     <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,16">
+                        <TextBlock Text="Installation Scope:" Foreground="#AAAAAA" Margin="0,0,0,6" FontSize="13"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                            <RadioButton x:Name="RadioCurrentUser" Content="Current User" IsChecked="True" Style="{StaticResource ModernRadioButton}" Checked="InstallScope_Changed" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="RadioAllUsers" Content="All Users (System-wide)" Style="{StaticResource ModernRadioButton}" Checked="InstallScope_Changed"/>
+                        </StackPanel>
+
                         <TextBlock Text="Install folder:" Foreground="#AAAAAA" Margin="0,0,0,6" FontSize="13"/>
                         
-                        <Grid Margin="0,0,0,24">
+                        <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="80"/>

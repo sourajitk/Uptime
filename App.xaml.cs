@@ -20,6 +20,9 @@ namespace UptimeTaskbarApp
         private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint RegisterWindowMessage(string lpString);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateWindowEx(
             uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
             int x, int y, int nWidth, int nHeight,
@@ -157,6 +160,7 @@ namespace UptimeTaskbarApp
         private static Mutex? _appMutex;
         private bool? _lastIsLightTheme;
         private Icon? _loadedIcon;
+        private uint _wmTaskbarCreated;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -209,6 +213,8 @@ namespace UptimeTaskbarApp
                 0, 0, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
+            _wmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
+
             // Load app icon (installer icon)
             bool isLightTheme = IsSystemLightTheme();
             _lastIsLightTheme = isLightTheme;
@@ -254,12 +260,23 @@ namespace UptimeTaskbarApp
                     return IntPtr.Zero;
                 }
             }
+            else if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
+            {
+                ReaddTrayIcon();
+            }
             else if (msg == WM_SETTINGCHANGE)
             {
                 UpdateTrayIcon();
             }
 
             return DefWindowProc(hWnd, msg, wParam, lParam);
+        }
+
+        private void ReaddTrayIcon()
+        {
+            _nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+            _nid.hIcon = _iconHandle;
+            Shell_NotifyIcon(NIM_ADD, ref _nid);
         }
 
         private void ShowContextMenu()

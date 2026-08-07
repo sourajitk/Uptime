@@ -37,6 +37,18 @@ jobs:
     - name: Rename Installer Executable
       run: Move-Item -Path UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeInstaller.exe -Destination UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
 
+    - name: Optional Code Signing
+      if: env.SIGNING_CERT_BASE64 != ''
+      shell: powershell
+      env:
+        SIGNING_CERT_BASE64: ${{ secrets.SIGNING_CERT_BASE64 }}
+        SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+      run: |
+        $certPath = "$env:TEMP\cert.pfx"
+        [System.Convert]::FromBase64String($env:SIGNING_CERT_BASE64) | Set-Content -Path $certPath -AsByteStream
+        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /f $certPath /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
+        Remove-Item -Path $certPath -Force
+
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
