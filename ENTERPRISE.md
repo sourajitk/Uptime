@@ -73,7 +73,7 @@ SIEM systems (Splunk, Datadog, Microsoft Sentinel) and RMM tools (NinjaOne, N-ab
 
 ## Command-Line Syntax
 
-The installer `UptimeTaskbarAppSetup-win-x64.exe` supports command-line switches for unattended and automated enterprise deployments.
+The installer `Uptime-v1.0.0-Setup-win-x64.exe` supports command-line switches for unattended and automated enterprise deployments.
 
 ### Command-Line Options
 
@@ -94,27 +94,27 @@ The installer `UptimeTaskbarAppSetup-win-x64.exe` supports command-line switches
 ### 1. Microsoft Intune / SCCM (System-Wide Silent Install)
 - **Install Command:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /allusers
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /allusers
   ```
 - **Uninstall Command:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /uninstall /allusers
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /allusers
   ```
 - **Detection Rule (File):**
-  - Path: `C:\Program Files\UptimeTaskbarApp`
-  - File: `UptimeTaskbarApp.exe`
+  - Path: `C:\Program Files\Uptime`
+  - File: `Uptime.exe`
 - **Detection Rule (Registry):**
   - Key: `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`
-  - Value Name: `UptimeTaskbarApp`
+  - Value Name: `Uptime`
 
 ### 2. Per-User Silent Install
 - **Install Command:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /currentuser
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /currentuser
   ```
 - **Uninstall Command:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /uninstall /currentuser
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /currentuser
   ```
 
 ---
@@ -125,7 +125,7 @@ When deploying Uptime in environments with strict EDR or Windows Defender Applic
 
 1. **Digital Signatures:** Enterprise builds can be digitally signed using a corporate or EV Code Signing certificate.
 2. **Path Rule Whitelisting:** If using AppLocker or Software Restriction Policies, whitelist by publisher certificate or file path:
-   - System-wide: `C:\Program Files\UptimeTaskbarApp\UptimeTaskbarApp.exe`
+   - System-wide: `C:\Program Files\Uptime\Uptime.exe`
 
 ---
 

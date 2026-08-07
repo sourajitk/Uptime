@@ -22,22 +22,22 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 Download the latest installer from the [Releases](https://github.com/sourajitk/Uptime/releases) page.
 
 ### Interactive GUI Installation
-Run `UptimeTaskbarAppSetup-win-x64.exe` and follow the wizard to select per-user (`LocalAppData`) or system-wide (`Program Files`) installation.
+Run `Uptime-v1.0.0-Setup-win-x64.exe` and follow the wizard to select per-user (`LocalAppData`) or system-wide (`Program Files`) installation.
 
 ### Silent Enterprise Installation
 For mass deployment via IT administration software (Intune, SCCM, PDQ Deploy, GPO):
 
 - **System-Wide Silent Install (All Users):**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /allusers
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /allusers
   ```
 - **System-Wide Silent Uninstall:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /uninstall /allusers
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /allusers
   ```
 - **Per-User Silent Install:**
   ```cmd
-  UptimeTaskbarAppSetup-win-x64.exe /silent /currentuser
+  Uptime-v1.0.0-Setup-win-x64.exe /silent /currentuser
   ```
 
 For detailed corporate deployment flags, GPO ADMX templates, detection rules, and code signing guidance, refer to [ENTERPRISE.md](ENTERPRISE.md).

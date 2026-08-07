@@ -34,8 +34,19 @@ jobs:
     - name: Publish Setup Installer (Release)
       run: dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release -r ${{ matrix.rid }}
 
-    - name: Rename Installer Executable
-      run: Move-Item -Path UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeInstaller.exe -Destination UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
+    - name: Package Installer Executable
+      shell: powershell
+      run: |
+        $refName = "${{ github.ref_name }}"
+        if ($refName -match '^v?(\d+\.\d+\.\d+)') {
+            $ver = "v" + $Matches[1]
+            $outputName = "Uptime-$ver-Setup-${{ matrix.rid }}.exe"
+        } else {
+            $outputName = "Uptime-v1.0.0-Setup-${{ matrix.rid }}.exe"
+        }
+        Write-Host "Packaging installer as $outputName"
+        Copy-Item -Path "UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeInstaller.exe" -Destination "UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/$outputName" -Force
+        echo "INSTALLER_NAME=$outputName" >> $env:GITHUB_ENV
 
     - name: Optional Code Signing
       if: env.SIGNING_CERT_BASE64 != ''
@@ -46,19 +57,19 @@ jobs:
       run: |
         $certPath = "$env:TEMP\cert.pfx"
         [System.Convert]::FromBase64String($env:SIGNING_CERT_BASE64) | Set-Content -Path $certPath -AsByteStream
-        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /f $certPath /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
+        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /f $certPath /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/$env:INSTALLER_NAME
         Remove-Item -Path $certPath -Force
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: UptimeTaskbarAppSetup-${{ matrix.rid }}
-        path: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
+        name: ${{ env.INSTALLER_NAME }}
+        path: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/${{ env.INSTALLER_NAME }}
 
     - name: Create and Publish GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeTaskbarAppSetup-${{ matrix.rid }}.exe
+        files: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/${{ env.INSTALLER_NAME }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
