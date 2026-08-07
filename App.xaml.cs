@@ -161,6 +161,9 @@ namespace UptimeTaskbarApp
         private bool? _lastIsLightTheme;
         private Icon? _loadedIcon;
         private uint _wmTaskbarCreated;
+        private bool _lastShowWarning = false;
+        private double _effectiveThresholdDays = 7.0;
+        private bool _isPolicyEnforced = false;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -218,7 +221,7 @@ namespace UptimeTaskbarApp
             // Load app icon (installer icon)
             bool isLightTheme = IsSystemLightTheme();
             _lastIsLightTheme = isLightTheme;
-            _iconHandle = LoadAppIcon();
+            _iconHandle = CreateClockIcon(isLightTheme, false);
 
             // Setup NOTIFYICONDATA — identical to how Task Manager does it
             _nid = new NOTIFYICONDATA
@@ -266,7 +269,7 @@ namespace UptimeTaskbarApp
             }
             else if (msg == WM_SETTINGCHANGE)
             {
-                UpdateTrayIcon();
+                UpdateTrayIcon(_lastShowWarning);
             }
 
             return DefWindowProc(hWnd, msg, wParam, lParam);
@@ -293,23 +296,52 @@ namespace UptimeTaskbarApp
             };
             startItem.Click += (s, e) => SetStartup(startItem.IsChecked);
 
+            var thresholdSubMenu = new MenuItem
+            {
+                Header = _isPolicyEnforced
+                    ? $"Restart Threshold ({_effectiveThresholdDays} Days - IT Policy)"
+                    : $"Restart Threshold ({(_effectiveThresholdDays == 0 ? "Disabled" : $"{_effectiveThresholdDays} Days")})",
+                StaysOpenOnClick = true
+            };
+
+            int[] presets = { 7, 14, 30, 0 };
+            string[] presetLabels = { "7 Days (Recommended)", "14 Days", "30 Days", "Disabled" };
+
+            for (int idx = 0; idx < presets.Length; idx++)
+            {
+                int val = presets[idx];
+                var item = new MenuItem
+                {
+                    Header = presetLabels[idx],
+                    IsCheckable = true,
+                    IsChecked = ((int)_effectiveThresholdDays == val),
+                    IsEnabled = !_isPolicyEnforced
+                };
+                item.Click += (s, e) =>
+                {
+                    SetUserMaxUptimeDays(val);
+                    UpdateUptime();
+                };
+                thresholdSubMenu.Items.Add(item);
+            }
+
             var versionItem = new MenuItem
             {
                 Header = $"Version {GetAppVersion()}",
                 IsEnabled = false
             };
 
+            var copyrightItem = new MenuItem
+            {
+                Header = $"Copyright (c) {DateTime.Now.Year} Sourajit Karmakar",
+                IsEnabled = false
+            };
+
             var sourceItem = new MenuItem
             {
-                Header = "Source Code"
+                Header = "View the source code on GitHub"
             };
             sourceItem.Click += (s, e) => OpenUrl("https://github.com/sourajitk/Uptime");
-
-            var authorItem = new MenuItem
-            {
-                Header = "Created by Sourajit Karmakar"
-            };
-            authorItem.Click += (s, e) => OpenUrl("https://sourajitk.github.io/");
 
             var exitItem = new MenuItem
             {
@@ -322,10 +354,11 @@ namespace UptimeTaskbarApp
             };
 
             menu.Items.Add(startItem);
+            menu.Items.Add(thresholdSubMenu);
             menu.Items.Add(new Separator());
             menu.Items.Add(versionItem);
+            menu.Items.Add(copyrightItem);
             menu.Items.Add(sourceItem);
-            menu.Items.Add(authorItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(exitItem);
 
@@ -437,22 +470,96 @@ namespace UptimeTaskbarApp
             }
         }
 
+        private double GetEffectiveMaxUptimeDays(out bool isPolicyEnforced)
+        {
+            isPolicyEnforced = false;
+
+            // 1. Check GPO / IT Admin Policy in HKLM\Software\Policies\Uptime
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Policies\Uptime");
+                if (key != null)
+                {
+                    object? val = key.GetValue("MaxUptimeDays");
+                    if (val is int daysInt)
+                    {
+                        isPolicyEnforced = true;
+                        return daysInt;
+                    }
+                }
+            }
+            catch { }
+
+            // 2. Check System-wide IT Admin setting in HKLM\Software\UptimeTaskbarApp
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\UptimeTaskbarApp");
+                if (key != null)
+                {
+                    object? val = key.GetValue("MaxUptimeDays");
+                    if (val is int daysInt)
+                    {
+                        isPolicyEnforced = true;
+                        return daysInt;
+                    }
+                }
+            }
+            catch { }
+
+            // 3. Check User setting in HKCU\Software\UptimeTaskbarApp (default: 7 days)
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
+                if (key != null)
+                {
+                    object? val = key.GetValue("MaxUptimeDays");
+                    if (val is int daysInt)
+                    {
+                        return daysInt;
+                    }
+                }
+            }
+            catch { }
+
+            return 7.0; // Default: 7 Days
+        }
+
+        private void SetUserMaxUptimeDays(int days)
+        {
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\UptimeTaskbarApp");
+                key?.SetValue("MaxUptimeDays", days, RegistryValueKind.DWord);
+            }
+            catch { }
+        }
+
         private void UpdateUptime()
         {
             long tickCountMs = Environment.TickCount64;
             TimeSpan uptime = TimeSpan.FromMilliseconds(tickCountMs);
+
+            double thresholdDays = GetEffectiveMaxUptimeDays(out bool isPolicyEnforced);
+            _isPolicyEnforced = isPolicyEnforced;
+            _effectiveThresholdDays = thresholdDays;
+
+            bool showWarning = thresholdDays > 0 && uptime.TotalDays >= thresholdDays;
 
             string daysStr = uptime.Days == 1 ? "day" : "days";
             string hoursStr = uptime.Hours == 1 ? "hour" : "hours";
             string minsStr = uptime.Minutes == 1 ? "minute" : "minutes";
 
             string tooltipText = $"Uptime: {uptime.Days} {daysStr}, {uptime.Hours} {hoursStr}, {uptime.Minutes} {minsStr}";
+            if (showWarning)
+            {
+                tooltipText += " (Restart Recommended!)";
+            }
 
             _nid.uFlags = NIF_TIP | NIF_SHOWTIP;
             _nid.szTip = tooltipText;
             Shell_NotifyIcon(NIM_MODIFY, ref _nid);
 
-            UpdateTrayIcon();
+            UpdateTrayIcon(showWarning);
         }
 
         private bool IsSystemLightTheme()
@@ -476,17 +583,18 @@ namespace UptimeTaskbarApp
             return false;
         }
 
-        private void UpdateTrayIcon()
+        private void UpdateTrayIcon(bool showWarning = false)
         {
             bool isLightTheme = IsSystemLightTheme();
-            if (_lastIsLightTheme == isLightTheme)
+            if (_lastIsLightTheme == isLightTheme && _lastShowWarning == showWarning)
             {
                 return;
             }
 
             _lastIsLightTheme = isLightTheme;
+            _lastShowWarning = showWarning;
             IntPtr oldIcon = _iconHandle;
-            _iconHandle = CreateClockIcon(isLightTheme);
+            _iconHandle = CreateClockIcon(isLightTheme, showWarning);
 
             _nid.hIcon = _iconHandle;
             _nid.uFlags = NIF_ICON;
@@ -498,33 +606,112 @@ namespace UptimeTaskbarApp
             }
         }
 
-        private IntPtr CreateClockIcon(bool isLightTheme)
+        private IntPtr CreateClockIcon(bool isLightTheme, bool showWarning = false)
         {
-            // Support 32x32 canvas for high-DPI crisp rendering on Windows 11
+            Bitmap? baseBmp = null;
+            try
+            {
+                string appDir = AppContext.BaseDirectory;
+                string iconPath = System.IO.Path.Combine(appDir, "Assets", "AppIcon.ico");
+                if (!System.IO.File.Exists(iconPath))
+                {
+                    iconPath = System.IO.Path.Combine(appDir, "AppIcon.ico");
+                }
+
+                if (System.IO.File.Exists(iconPath))
+                {
+                    using Icon ico = new Icon(iconPath, 32, 32);
+                    baseBmp = ico.ToBitmap();
+                }
+                else
+                {
+                    string? procPath = Environment.ProcessPath;
+                    if (!string.IsNullOrEmpty(procPath))
+                    {
+                        using Icon? procIcon = Icon.ExtractAssociatedIcon(procPath);
+                        if (procIcon != null)
+                        {
+                            baseBmp = procIcon.ToBitmap();
+                        }
+                    }
+                }
+            }
+            catch { }
+
             Bitmap bmp = new Bitmap(32, 32);
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                Color iconColor = isLightTheme ? Color.Black : Color.White;
-
-                // Use pen with thickness of 2 pixels matching Fluent outline style
-                using (Pen pen = new Pen(iconColor, 2f))
+                if (baseBmp != null)
                 {
-                    pen.StartCap = LineCap.Round;
-                    pen.EndCap = LineCap.Round;
-                    pen.LineJoin = LineJoin.Round;
+                    g.DrawImage(baseBmp, 0, 0, 32, 32);
+                    baseBmp.Dispose();
+                }
+                else
+                {
+                    // Fallback outline clock face if AppIcon.ico is unavailable
+                    Color iconColor = isLightTheme ? Color.Black : Color.White;
+                    using (Pen pen = new Pen(iconColor, 2f))
+                    {
+                        pen.StartCap = LineCap.Round;
+                        pen.EndCap = LineCap.Round;
+                        pen.LineJoin = LineJoin.Round;
 
-                    // Draw outer clock face circle (diameter 26, centered with 3px margins)
-                    g.DrawEllipse(pen, 3f, 3f, 26f, 26f);
+                        g.DrawEllipse(pen, 3f, 3f, 26f, 26f);
+                        g.DrawLine(pen, 16f, 16f, 22.5f, 16f);
+                        g.DrawLine(pen, 16f, 16f, 16f, 8.5f);
+                    }
+                }
 
-                    // Draw hands from center (16, 16)
-                    // Hour hand: points to 3 o'clock (right, length 6.5)
-                    g.DrawLine(pen, 16f, 16f, 22.5f, 16f);
+                // If uptime exceeds threshold, draw Fluent-style warning badge in bottom-right corner
+                if (showWarning)
+                {
+                    // Triangle vertices: top=(23, 14), bottom-left=(14, 30), bottom-right=(31, 30)
+                    PointF p1 = new PointF(23f, 14f);
+                    PointF p2 = new PointF(14f, 30f);
+                    PointF p3 = new PointF(31f, 30f);
+                    PointF[] triangle = { p1, p2, p3 };
 
-                    // Minute hand: points to 12 o'clock (up, length 7.5)
-                    g.DrawLine(pen, 16f, 16f, 16f, 8.5f);
+                    // 1. Draw a dark cutout/border polygon slightly larger to separate badge from clock outline
+                    PointF bp1 = new PointF(23f, 12f);
+                    PointF bp2 = new PointF(12f, 31.5f);
+                    PointF bp3 = new PointF(32f, 31.5f);
+                    PointF[] borderTriangle = { bp1, bp2, bp3 };
+
+                    Color bgCutout = isLightTheme ? Color.White : Color.FromArgb(255, 32, 32, 32);
+                    using (SolidBrush bgBrush = new SolidBrush(bgCutout))
+                    {
+                        g.FillPolygon(bgBrush, borderTriangle);
+                    }
+
+                    // 2. Fill amber/yellow warning badge
+                    Color amberColor = Color.FromArgb(255, 255, 185, 0); // Vibrant Fluent Amber (#FFB900)
+                    using (SolidBrush amberBrush = new SolidBrush(amberColor))
+                    {
+                        g.FillPolygon(amberBrush, triangle);
+                    }
+
+                    // 3. Draw dark outline border for badge definition
+                    using (Pen outlinePen = new Pen(Color.FromArgb(255, 40, 40, 40), 1f))
+                    {
+                        g.DrawPolygon(outlinePen, triangle);
+                    }
+
+                    // 4. Draw black exclamation mark (!)
+                    using (Pen markPen = new Pen(Color.Black, 2f))
+                    {
+                        markPen.StartCap = LineCap.Round;
+                        markPen.EndCap = LineCap.Round;
+                        // Exclamation vertical line
+                        g.DrawLine(markPen, 22.5f, 18.5f, 22.5f, 23.5f);
+                    }
+                    using (SolidBrush dotBrush = new SolidBrush(Color.Black))
+                    {
+                        // Exclamation dot
+                        g.FillEllipse(dotBrush, 21.5f, 25.5f, 2f, 2f);
+                    }
                 }
             }
             return bmp.GetHicon();

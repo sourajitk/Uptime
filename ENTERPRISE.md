@@ -21,6 +21,22 @@ Uptime supports two installation scopes:
 
 ---
 
+## Group Policy & Registry Configuration
+
+IT Administrators can enforce restart recommendation thresholds across domain endpoints using Group Policy (GPO) or Registry keys.
+
+### Registry Policy Locations
+
+| Setting | Registry Key | Value Name | Type | Value / Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Max Uptime Threshold (GPO)** | `HKEY_LOCAL_MACHINE\Software\Policies\Uptime` | `MaxUptimeDays` | `DWORD` | Number of days (e.g. `7`, `14`, `30`). Set `0` to disable warning. |
+| **Max Uptime Threshold (System)** | `HKEY_LOCAL_MACHINE\Software\UptimeTaskbarApp` | `MaxUptimeDays` | `DWORD` | Fallback machine policy. |
+| **User Threshold Preference** | `HKEY_CURRENT_USER\Software\UptimeTaskbarApp` | `MaxUptimeDays` | `DWORD` | End-user threshold preference (default `7`). |
+
+When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Threshold (X Days - IT Policy)` and locks user modification.
+
+---
+
 ## Command-Line Syntax
 
 The installer `UptimeTaskbarAppSetup-win-x64.exe` supports command-line switches for unattended and automated enterprise deployments.

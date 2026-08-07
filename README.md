@@ -42,4 +42,4 @@ For detailed corporate deployment flags, detection rules, and code signing guida
 ## License
 
 This project is licensed under the [Apache-2.0 License](LICENSE).
-Copyright 2026 Sourajit Karmakar.
+Copyright (c) 2026 Sourajit Karmakar.
