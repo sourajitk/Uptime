@@ -66,6 +66,9 @@ namespace UptimeTaskbarApp
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("kernel32.dll")]
+        private static extern bool AttachConsole(int dwProcessId);
+
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         // ── Structures ──
@@ -125,7 +128,11 @@ namespace UptimeTaskbarApp
         private const uint NIF_MESSAGE = 0x01;
         private const uint NIF_ICON = 0x02;
         private const uint NIF_TIP = 0x04;
+        private const uint NIF_INFO = 0x10;
         private const uint NIF_SHOWTIP = 0x10;
+        private const uint NIIF_WARNING = 0x02;
+
+        private const int ATTACH_PARENT_PROCESS = -1;
 
         private const uint NOTIFYICON_VERSION_4 = 4;
 
@@ -164,9 +171,36 @@ namespace UptimeTaskbarApp
         private bool _lastShowWarning = false;
         private double _effectiveThresholdDays = 7.0;
         private bool _isPolicyEnforced = false;
+        private bool _hasShownWarningNotification = false;
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            string[] args = Environment.GetCommandLineArgs();
+            if (args.Any(a => a.Equals("/status", StringComparison.OrdinalIgnoreCase) || a.Equals("--status", StringComparison.OrdinalIgnoreCase)))
+            {
+                AttachConsole(ATTACH_PARENT_PROCESS);
+
+                long currentTickMs = Environment.TickCount64;
+                TimeSpan currentUptime = TimeSpan.FromMilliseconds(currentTickMs);
+                double currentThreshold = GetEffectiveMaxUptimeDays(out bool policyEnforced);
+                bool currentWarning = currentThreshold > 0 && currentUptime.TotalDays >= currentThreshold;
+                bool fastStartupActive = IsFastStartupEnabled();
+
+                string jsonOutput = "{\n" +
+                    $"  \"uptime_seconds\": {currentTickMs / 1000},\n" +
+                    $"  \"uptime_days\": {Math.Round(currentUptime.TotalDays, 2)},\n" +
+                    $"  \"uptime_formatted\": \"{currentUptime.Days} days, {currentUptime.Hours} hours, {currentUptime.Minutes} minutes\",\n" +
+                    $"  \"threshold_days\": {currentThreshold},\n" +
+                    $"  \"is_threshold_exceeded\": {currentWarning.ToString().ToLower()},\n" +
+                    $"  \"is_policy_enforced\": {policyEnforced.ToString().ToLower()},\n" +
+                    $"  \"fast_startup_enabled\": {fastStartupActive.ToString().ToLower()}\n" +
+                    "}";
+
+                Console.WriteLine(jsonOutput);
+                Environment.Exit(0);
+                return;
+            }
+
             const string mutexName = "UptimeTaskbarApp_SingleInstanceMutex";
             _appMutex = new Mutex(true, mutexName, out bool createdNew);
 
@@ -343,6 +377,12 @@ namespace UptimeTaskbarApp
             };
             sourceItem.Click += (s, e) => OpenUrl("https://github.com/sourajitk/Uptime");
 
+            var restartItem = new MenuItem
+            {
+                Header = "Restart Computer..."
+            };
+            restartItem.Click += (s, e) => PromptAndRestartComputer();
+
             var exitItem = new MenuItem
             {
                 Header = "Exit"
@@ -355,6 +395,8 @@ namespace UptimeTaskbarApp
 
             menu.Items.Add(startItem);
             menu.Items.Add(thresholdSubMenu);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(restartItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(versionItem);
             menu.Items.Add(copyrightItem);
@@ -534,6 +576,80 @@ namespace UptimeTaskbarApp
             catch { }
         }
 
+        private bool IsFastStartupEnabled()
+        {
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager\Power");
+                if (key != null)
+                {
+                    object? val = key.GetValue("HiberbootEnabled");
+                    if (val is int i)
+                    {
+                        return i == 1;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private void LogEventViewerWarning(double uptimeDays, double thresholdDays)
+        {
+            try
+            {
+                string source = "Uptime";
+                string logName = "Application";
+                if (!EventLog.SourceExists(source))
+                {
+                    EventLog.CreateEventSource(source, logName);
+                }
+                EventLog.WriteEntry(source, $"System uptime ({Math.Round(uptimeDays, 1)} days) has exceeded the configured restart threshold ({thresholdDays} days). A system restart is recommended to maintain optimal performance.", EventLogEntryType.Warning, 1001);
+            }
+            catch { /* Ignore event log creation failures if non-admin */ }
+        }
+
+        private void PromptAndRestartComputer()
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to restart your computer now?\n\nPlease save all open work before proceeding.",
+                "Confirm System Restart",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "shutdown.exe",
+                        Arguments = "/r /t 0",
+                        UseShellExecute = true,
+                        CreateNoWindow = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to initiate restart:\n\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void ShowBalloonNotification(string title, string message)
+        {
+            try
+            {
+                _nid.uFlags = NIF_INFO;
+                _nid.szInfoTitle = title;
+                _nid.szInfo = message;
+                _nid.dwInfoFlags = NIIF_WARNING;
+                Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+            }
+            catch { }
+        }
+
         private void UpdateUptime()
         {
             long tickCountMs = Environment.TickCount64;
@@ -544,6 +660,7 @@ namespace UptimeTaskbarApp
             _effectiveThresholdDays = thresholdDays;
 
             bool showWarning = thresholdDays > 0 && uptime.TotalDays >= thresholdDays;
+            bool fastStartupActive = IsFastStartupEnabled();
 
             string daysStr = uptime.Days == 1 ? "day" : "days";
             string hoursStr = uptime.Hours == 1 ? "hour" : "hours";
@@ -553,6 +670,21 @@ namespace UptimeTaskbarApp
             if (showWarning)
             {
                 tooltipText += " (Restart Recommended!)";
+                if (fastStartupActive)
+                {
+                    tooltipText += "\nNote: Fast Startup active — use 'Restart' to reset uptime.";
+                }
+
+                if (!_hasShownWarningNotification)
+                {
+                    _hasShownWarningNotification = true;
+                    ShowBalloonNotification("Restart Recommended", $"Your computer has been running for {uptime.Days} days. A restart is recommended to maintain system performance.");
+                    LogEventViewerWarning(uptime.TotalDays, thresholdDays);
+                }
+            }
+            else
+            {
+                _hasShownWarningNotification = false;
             }
 
             _nid.uFlags = NIF_TIP | NIF_SHOWTIP;

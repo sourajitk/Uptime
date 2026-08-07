@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Uptime Administration Policy</displayName>
+  <description>Group Policy definitions for Uptime taskbar application.</description>
+  <resources>
+    <stringTable>
+      <string id="UptimeCategory">Uptime</string>
+      <string id="MaxUptimeDaysPolicy">Configure Maximum Uptime Threshold (Days)</string>
+      <string id="MaxUptimeDaysPolicy_Help">Specifies the maximum system uptime threshold in days before Uptime displays a warning badge and recommendation notification to restart the computer.
+
+If you enable this policy setting, you must specify the threshold in days (e.g. 7, 14, 30). Set to 0 to disable warning badges.
+
+If you disable or do not configure this policy setting, users can configure their preferred threshold in the context menu.</string>
+      <string id="SUPPORTED_Windows7">Windows 7 or later</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="MaxUptimeDaysPolicy">
+        <decimalTextBox refId="MaxUptimeDaysValue" defaultValue="7">Max Uptime Threshold (Days):</decimalTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

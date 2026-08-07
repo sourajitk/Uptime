@@ -9,10 +9,13 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 ## Features
 
 - **System Tray Display**: Displays live system uptime in days, hours, and minutes via tray tooltip.
-- **Theme Adaptive**: Dynamic clock icon matches Windows Light and Dark themes seamlessly.
-- **Lightweight**: Minimal memory footprint and low CPU usage.
+- **Restart Warning Badge**: Overlays a Fluent-style yellow warning badge when system uptime crosses a configured threshold (7, 14, 30 days or custom).
+- **Fast Startup Awareness**: Detects Windows Fast Startup and informs users why shutting down doesn't reset uptime.
+- **Direct Computer Restart**: 1-click "Restart Computer..." context menu option with safety confirmation prompt.
+- **Windows Event Log Monitoring**: Writes Event Log Warning (Event ID 1001, Source `Uptime`) when threshold is reached for SIEM & RMM monitoring.
+- **RMM Command-Line Status Query**: Executing `UptimeTaskbarApp.exe /status` returns JSON machine status to stdout for automated IT audit scripts.
 - **Explorer Restart Recovery**: Automatically re-registers tray icon if Windows Explorer restarts.
-- **Enterprise Ready**: Full support for silent installations, all-users (machine-wide) deployments, and IT management tools (Intune, SCCM, PDQ Deploy, GPO).
+- **Group Policy & Enterprise Ready**: Full support for ADMX templates, Group Policy GPO, silent CLI installations, and IT management tools (Intune, SCCM, PDQ Deploy, GPO).
 
 ## Installation
 
@@ -37,7 +40,7 @@ For mass deployment via IT administration software (Intune, SCCM, PDQ Deploy, GP
   UptimeTaskbarAppSetup-win-x64.exe /silent /currentuser
   ```
 
-For detailed corporate deployment flags, detection rules, and code signing guidance, refer to [ENTERPRISE.md](ENTERPRISE.md).
+For detailed corporate deployment flags, GPO ADMX templates, detection rules, and code signing guidance, refer to [ENTERPRISE.md](ENTERPRISE.md).
 
 ## License
 

@@ -35,6 +35,40 @@ IT Administrators can enforce restart recommendation thresholds across domain en
 
 When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Threshold (X Days - IT Policy)` and locks user modification.
 
+### ADMX Administrative Templates
+Group Policy templates are provided in the `policy/` directory:
+- Copy `policy/Uptime.admx` to `C:\Windows\PolicyDefinitions\`
+- Copy `policy/en-US/Uptime.adml` to `C:\Windows\PolicyDefinitions\en-US\`
+
+Once copied, policies can be managed under `Computer Configuration -> Administrative Templates -> Uptime`.
+
+---
+
+## RMM & SIEM Integration
+
+### 1. Command-Line Status Query (`/status`)
+Executing `UptimeTaskbarApp.exe /status` returns JSON machine status to stdout for RMM agents and audit scripts:
+```json
+{
+  "uptime_seconds": 604800,
+  "uptime_days": 7.0,
+  "uptime_formatted": "7 days, 0 hours, 0 minutes",
+  "threshold_days": 7.0,
+  "is_threshold_exceeded": true,
+  "is_policy_enforced": false,
+  "fast_startup_enabled": true
+}
+```
+
+### 2. Windows Event Log Monitoring
+When system uptime crosses the restart threshold, Uptime logs a Warning to the Windows Event Viewer:
+- **Log:** `Application`
+- **Source:** `Uptime`
+- **Event ID:** `1001`
+- **Level:** `Warning`
+
+SIEM systems (Splunk, Datadog, Microsoft Sentinel) and RMM tools (NinjaOne, N-able, Datto) can query Event ID `1001` to generate reboot compliance reports.
+
 ---
 
 ## Command-Line Syntax
