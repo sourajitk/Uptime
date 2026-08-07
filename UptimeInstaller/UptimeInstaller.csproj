@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="..\bin\Release\net10.0-windows\$(RuntimeIdentifier)\publish\Uptime.exe">
-      <Link>Resources\UptimeTaskbarApp.exe</Link>
+      <Link>Resources\Uptime.exe</Link>
     </EmbeddedResource>
   </ItemGroup>
 

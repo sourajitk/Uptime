@@ -40,7 +40,25 @@ namespace UptimeInstaller
             TxtInstallPath.Text = _engine.GetTargetInstallPath();
 
             DetectExistingInstallation();
+
+            if (_engine.StartPage > 0)
+            {
+                _currentPage = _engine.StartPage;
+            }
+
             UpdateWizardLayout();
+
+            if (_currentPage == 3)
+            {
+                if (_engine.IsUninstall)
+                {
+                    StartUninstallation(_engine.GetTargetInstallPath(), _engine.IsAllUsers);
+                }
+                else
+                {
+                    StartInstallation();
+                }
+            }
         }
 
         private void InstallScope_Changed(object sender, RoutedEventArgs e)
@@ -283,6 +301,29 @@ namespace UptimeInstaller
                 installPath = _engine.GetTargetInstallPath();
             }
 
+            if ((isAllUsers || InstallerEngine.IsSystemDirectory(installPath)) && !InstallerEngine.IsAdministrator())
+            {
+                string args = $"/page=3 /dir=\"{installPath}\" {(isAllUsers ? "/allusers" : "/currentuser")} /launch";
+                if (InstallerEngine.ElevateSelf(args))
+                {
+                    Application.Current.Shutdown();
+                    return;
+                }
+                else
+                {
+                    MessageBox.Show("Administrator privileges are required for system-wide installation to Program Files.",
+                        "Elevation Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _currentPage = 2; // Return to selection
+                    UpdateWizardLayout();
+                    return;
+                }
+            }
+
+            if (InstallingTitle != null)
+            {
+                InstallingTitle.Text = _isUpgradeFlow ? "Upgrading Uptime..." : "Installing Uptime...";
+            }
+
             InstallProgressBar.Value = 0;
 
             await Task.Run(async () =>
@@ -306,7 +347,7 @@ namespace UptimeInstaller
                     await Task.Delay(300);
 
                     UpdateStatus("Extracting files...", 60);
-                    string targetExePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
+                    string targetExePath = Path.Combine(installPath, "Uptime.exe");
                     _engine.ExtractEmbeddedApp(targetExePath);
                     await Task.Delay(300);
 
@@ -348,7 +389,7 @@ namespace UptimeInstaller
             });
         }
 
-        private async void Uninstall_Click(object sender, RoutedEventArgs e)
+        private void Uninstall_Click(object sender, RoutedEventArgs e)
         {
             MessageBoxResult confirm = MessageBox.Show(
                 "Are you sure you want to completely uninstall Uptime?",
@@ -361,14 +402,34 @@ namespace UptimeInstaller
                 return;
             }
 
-            _currentPage = 3;
-            UpdateWizardLayout();
-
             string installPath = TxtInstallPath.Text.Trim();
             bool isAllUsers = RadioAllUsers.IsChecked == true;
             if (string.IsNullOrEmpty(installPath))
             {
                 installPath = _engine.GetTargetInstallPath();
+            }
+
+            if ((isAllUsers || InstallerEngine.IsSystemDirectory(installPath)) && !InstallerEngine.IsAdministrator())
+            {
+                string args = $"/uninstall /page=3 /dir=\"{installPath}\" {(isAllUsers ? "/allusers" : "/currentuser")}";
+                if (InstallerEngine.ElevateSelf(args))
+                {
+                    Application.Current.Shutdown();
+                    return;
+                }
+            }
+
+            StartUninstallation(installPath, isAllUsers);
+        }
+
+        private async void StartUninstallation(string installPath, bool isAllUsers)
+        {
+            _currentPage = 3;
+            UpdateWizardLayout();
+
+            if (InstallingTitle != null)
+            {
+                InstallingTitle.Text = "Uninstalling Uptime...";
             }
 
             InstallProgressBar.Value = 0;
@@ -440,7 +501,12 @@ namespace UptimeInstaller
                     {
                         installPath = _engine.GetTargetInstallPath();
                     }
-                    string exePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
+                    string exePath = Path.Combine(installPath, "Uptime.exe");
+                    if (!File.Exists(exePath))
+                    {
+                        exePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
+                    }
+
                     if (File.Exists(exePath))
                     {
                         Process.Start(new ProcessStartInfo

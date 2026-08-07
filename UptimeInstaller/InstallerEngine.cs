@@ -17,6 +17,7 @@ namespace UptimeInstaller
         public bool IsAllUsers { get; set; }
         public bool LaunchApp { get; set; } = true;
         public string? CustomInstallPath { get; set; }
+        public int StartPage { get; set; } = 0;
 
         public string DefaultCurrentUserPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -70,6 +71,14 @@ namespace UptimeInstaller
                 {
                     LaunchApp = false;
                 }
+                else if (a.StartsWith("/page=") || a.StartsWith("--page="))
+                {
+                    int idx = a.IndexOf('=');
+                    if (idx >= 0 && idx < arg.Length - 1 && int.TryParse(arg.Substring(idx + 1), out int p))
+                    {
+                        StartPage = p;
+                    }
+                }
                 else if (a.StartsWith("/dir=") || a.StartsWith("--dir="))
                 {
                     int idx = a.IndexOf('=');
@@ -97,11 +106,76 @@ namespace UptimeInstaller
             return silentDetected;
         }
 
+        public static bool IsAdministrator()
+        {
+            try
+            {
+                using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+                var principal = new System.Security.Principal.WindowsPrincipal(identity);
+                return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool IsSystemDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try
+            {
+                string p = Path.GetFullPath(path).ToLowerInvariant();
+                string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles).ToLowerInvariant();
+                string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86).ToLowerInvariant();
+                return p.StartsWith(progFiles) || p.StartsWith(progFilesX86);
+            }
+            catch { return false; }
+        }
+
+        public static bool ElevateSelf(string arguments)
+        {
+            try
+            {
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath)) return false;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = arguments,
+                    Verb = "runas",
+                    UseShellExecute = true
+                };
+
+                Process.Start(psi);
+                return true;
+            }
+            catch
+            {
+                return false; // User cancelled UAC prompt
+            }
+        }
+
         public int RunSilent()
         {
             try
             {
                 string installPath = GetTargetInstallPath();
+
+                if ((IsAllUsers || IsSystemDirectory(installPath)) && !IsAdministrator())
+                {
+                    string argsString = string.Join(" ", Environment.GetCommandLineArgs().Skip(1).Select(a => $"\"{a}\""));
+                    if (ElevateSelf(argsString))
+                    {
+                        return 0; // Elevated child process performs installation
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("[UptimeInstaller Error] Administrator privileges are required for system-wide installation.");
+                        return 1;
+                    }
+                }
 
                 if (IsUninstall)
                 {
@@ -130,7 +204,10 @@ namespace UptimeInstaller
             KillRunningInstances("UptimeTaskbarApp");
             KillRunningInstances("Uptime");
 
-            // 2. Prepare directory
+            // 2. Cleanup legacy installation directories
+            CleanupLegacyInstallFolder();
+
+            // 3. Prepare directory
             if (Directory.Exists(installPath))
             {
                 CleanDirectory(installPath);
@@ -265,21 +342,44 @@ namespace UptimeInstaller
 
         public void RemoveStartMenuShortcut()
         {
+            foreach (string baseFolder in new[] {
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms)
+            })
+            {
+                if (string.IsNullOrEmpty(baseFolder)) continue;
+                try
+                {
+                    string p1 = Path.Combine(baseFolder, "Uptime.lnk");
+                    if (File.Exists(p1)) File.Delete(p1);
+                    string p2 = Path.Combine(baseFolder, "UptimeTaskbarApp.lnk");
+                    if (File.Exists(p2)) File.Delete(p2);
+                }
+                catch { }
+            }
+        }
+
+        private void CleanupLegacyInstallFolder()
+        {
             try
             {
-                string userPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-                    "Uptime.lnk");
-                if (File.Exists(userPath)) File.Delete(userPath);
+                string oldUserDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "UptimeTaskbarApp");
+                if (Directory.Exists(oldUserDir))
+                {
+                    CleanDirectory(oldUserDir);
+                    Directory.Delete(oldUserDir, true);
+                }
             }
             catch { }
 
             try
             {
-                string commonPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
-                    "Uptime.lnk");
-                if (File.Exists(commonPath)) File.Delete(commonPath);
+                string oldAllDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "UptimeTaskbarApp");
+                if (Directory.Exists(oldAllDir))
+                {
+                    CleanDirectory(oldAllDir);
+                    Directory.Delete(oldAllDir, true);
+                }
             }
             catch { }
         }

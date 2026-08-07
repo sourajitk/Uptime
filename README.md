@@ -13,7 +13,7 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 - **Fast Startup Awareness**: Detects Windows Fast Startup and informs users why shutting down doesn't reset uptime.
 - **Direct Computer Restart**: 1-click "Restart Computer..." context menu option with safety confirmation prompt.
 - **Windows Event Log Monitoring**: Writes Event Log Warning (Event ID 1001, Source `Uptime`) when threshold is reached for SIEM & RMM monitoring.
-- **RMM Command-Line Status Query**: Executing `UptimeTaskbarApp.exe /status` returns JSON machine status to stdout for automated IT audit scripts.
+- **RMM Command-Line Status Query**: Executing `Uptime.exe /status` returns JSON machine status to stdout for automated IT audit scripts.
 - **Explorer Restart Recovery**: Automatically re-registers tray icon if Windows Explorer restarts.
 - **Group Policy & Enterprise Ready**: Full support for ADMX templates, Group Policy GPO, silent CLI installations, and IT management tools (Intune, SCCM, PDQ Deploy, GPO).
 

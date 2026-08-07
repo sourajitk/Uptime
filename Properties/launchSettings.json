@@ -1,9 +1,9 @@
 {
   "profiles": {
-    "UptimeTaskbarApp (Package)": {
+    "Uptime (Package)": {
       "commandName": "MsixPackage"
     },
-    "UptimeTaskbarApp (Unpackaged)": {
+    "Uptime (Unpackaged)": {
       "commandName": "Project"
     }
   }

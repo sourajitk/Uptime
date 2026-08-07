@@ -9,12 +9,12 @@ This guide provides instructions for IT administrators deploying Uptime across c
 Uptime supports two installation scopes:
 
 1. **Per-User Installation (Default for non-elevated users)**
-   - Target Folder: `%localappdata%\Programs\UptimeTaskbarApp`
+   - Target Folder: `%localappdata%\Programs\Uptime`
    - Startup Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
    - Start Menu Shortcut: `%appdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
 
 2. **System-Wide / All Users Installation (Recommended for Enterprise Management)**
-   - Target Folder: `%programfiles%\UptimeTaskbarApp`
+   - Target Folder: `%programfiles%\Uptime`
    - Startup Registry: `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
    - Start Menu Shortcut: `%programdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
    - Requires administrative privileges during installation.
@@ -30,8 +30,8 @@ IT Administrators can enforce restart recommendation thresholds across domain en
 | Setting | Registry Key | Value Name | Type | Value / Description |
 | :--- | :--- | :--- | :--- | :--- |
 | **Max Uptime Threshold (GPO)** | `HKEY_LOCAL_MACHINE\Software\Policies\Uptime` | `MaxUptimeDays` | `DWORD` | Number of days (e.g. `7`, `14`, `30`). Set `0` to disable warning. |
-| **Max Uptime Threshold (System)** | `HKEY_LOCAL_MACHINE\Software\UptimeTaskbarApp` | `MaxUptimeDays` | `DWORD` | Fallback machine policy. |
-| **User Threshold Preference** | `HKEY_CURRENT_USER\Software\UptimeTaskbarApp` | `MaxUptimeDays` | `DWORD` | End-user threshold preference (default `7`). |
+| **Max Uptime Threshold (System)** | `HKEY_LOCAL_MACHINE\Software\Uptime` | `MaxUptimeDays` | `DWORD` | Fallback machine policy. |
+| **User Threshold Preference** | `HKEY_CURRENT_USER\Software\Uptime` | `MaxUptimeDays` | `DWORD` | End-user threshold preference (default `7`). |
 
 When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Threshold (X Days - IT Policy)` and locks user modification.
 
@@ -47,7 +47,7 @@ Once copied, policies can be managed under `Computer Configuration -> Administra
 ## RMM & SIEM Integration
 
 ### 1. Command-Line Status Query (`/status`)
-Executing `UptimeTaskbarApp.exe /status` returns JSON machine status to stdout for RMM agents and audit scripts:
+Executing `Uptime.exe /status` returns JSON machine status to stdout for RMM agents and audit scripts:
 ```json
 {
   "uptime_seconds": 604800,

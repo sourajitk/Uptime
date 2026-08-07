@@ -11,7 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using Microsoft.Win32;
 
-namespace UptimeTaskbarApp
+namespace Uptime
 {
     public partial class App : Application
     {
@@ -201,7 +201,7 @@ namespace UptimeTaskbarApp
                 return;
             }
 
-            const string mutexName = "UptimeTaskbarApp_SingleInstanceMutex";
+            const string mutexName = "Uptime_SingleInstanceMutex";
             _appMutex = new Mutex(true, mutexName, out bool createdNew);
 
             if (!createdNew)
@@ -532,10 +532,10 @@ namespace UptimeTaskbarApp
             }
             catch { }
 
-            // 2. Check System-wide IT Admin setting in HKLM\Software\UptimeTaskbarApp
+            // 2. Check System-wide IT Admin setting in HKLM\Software\Uptime
             try
             {
-                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\UptimeTaskbarApp");
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Uptime") ?? Registry.LocalMachine.OpenSubKey(@"Software\UptimeTaskbarApp");
                 if (key != null)
                 {
                     object? val = key.GetValue("MaxUptimeDays");
@@ -548,10 +548,10 @@ namespace UptimeTaskbarApp
             }
             catch { }
 
-            // 3. Check User setting in HKCU\Software\UptimeTaskbarApp (default: 7 days)
+            // 3. Check User setting in HKCU\Software\Uptime (default: 7 days)
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Uptime") ?? Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
                 if (key != null)
                 {
                     object? val = key.GetValue("MaxUptimeDays");
@@ -570,7 +570,7 @@ namespace UptimeTaskbarApp
         {
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\UptimeTaskbarApp");
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\Uptime");
                 key?.SetValue("MaxUptimeDays", days, RegistryValueKind.DWord);
             }
             catch { }
@@ -601,7 +601,7 @@ namespace UptimeTaskbarApp
             if (_lastNotificationTime != DateTime.MinValue) return _lastNotificationTime;
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Uptime") ?? Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
                 if (key != null)
                 {
                     object? val = key.GetValue("LastNotificationTicks");
@@ -621,7 +621,7 @@ namespace UptimeTaskbarApp
             _lastNotificationTime = dt;
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\UptimeTaskbarApp");
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\Uptime");
                 key?.SetValue("LastNotificationTicks", dt.Ticks, RegistryValueKind.QWord);
             }
             catch { }
@@ -819,21 +819,6 @@ namespace UptimeTaskbarApp
                     g.DrawImage(baseBmp, 0, 0, 32, 32);
                     baseBmp.Dispose();
                 }
-                else
-                {
-                    // Fallback outline clock face if AppIcon.ico is unavailable
-                    Color iconColor = isLightTheme ? Color.Black : Color.White;
-                    using (Pen pen = new Pen(iconColor, 2f))
-                    {
-                        pen.StartCap = LineCap.Round;
-                        pen.EndCap = LineCap.Round;
-                        pen.LineJoin = LineJoin.Round;
-
-                        g.DrawEllipse(pen, 3f, 3f, 26f, 26f);
-                        g.DrawLine(pen, 16f, 16f, 22.5f, 16f);
-                        g.DrawLine(pen, 16f, 16f, 16f, 8.5f);
-                    }
-                }
 
                 // If uptime exceeds threshold, draw Fluent-style warning badge in bottom-right corner
                 if (showWarning)
@@ -844,7 +829,7 @@ namespace UptimeTaskbarApp
                     PointF p3 = new PointF(31f, 30f);
                     PointF[] triangle = { p1, p2, p3 };
 
-                    // 1. Draw a dark cutout/border polygon slightly larger to separate badge from clock outline
+                    // 1. Draw a dark cutout/border polygon slightly larger to separate badge from app icon
                     PointF bp1 = new PointF(23f, 12f);
                     PointF bp2 = new PointF(12f, 31.5f);
                     PointF bp3 = new PointF(32f, 31.5f);
@@ -863,7 +848,7 @@ namespace UptimeTaskbarApp
                         g.FillPolygon(amberBrush, triangle);
                     }
 
-                    // 3. Draw dark outline border for badge definition
+                    // 3. Draw dark border for badge definition
                     using (Pen outlinePen = new Pen(Color.FromArgb(255, 40, 40, 40), 1f))
                     {
                         g.DrawPolygon(outlinePen, triangle);
@@ -887,41 +872,6 @@ namespace UptimeTaskbarApp
             return bmp.GetHicon();
         }
 
-        private IntPtr LoadAppIcon()
-        {
-            try
-            {
-                string appDir = AppContext.BaseDirectory;
-                string iconPath = System.IO.Path.Combine(appDir, "Assets", "AppIcon.ico");
-                if (!System.IO.File.Exists(iconPath))
-                {
-                    iconPath = System.IO.Path.Combine(appDir, "AppIcon.ico");
-                }
-
-                if (System.IO.File.Exists(iconPath))
-                {
-                    _loadedIcon = new Icon(iconPath, 32, 32);
-                    return _loadedIcon.Handle;
-                }
-
-                string? procPath = Environment.ProcessPath;
-                if (!string.IsNullOrEmpty(procPath))
-                {
-                    _loadedIcon = Icon.ExtractAssociatedIcon(procPath);
-                    if (_loadedIcon != null)
-                    {
-                        return _loadedIcon.Handle;
-                    }
-                }
-            }
-            catch
-            {
-                // Fallback to generated icon
-            }
-
-            return CreateClockIcon(IsSystemLightTheme());
-        }
-
         private string GetAppVersion()
         {
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
@@ -929,7 +879,7 @@ namespace UptimeTaskbarApp
             {
                 return $"{version.Major}.{version.Minor}.{version.Build}";
             }
-            return "0.0.7";
+            return "1.0.0";
         }
 
         private void Cleanup()

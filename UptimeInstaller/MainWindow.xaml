@@ -322,7 +322,7 @@
                 <!-- Page 4: Installing Page -->
                 <Grid x:Name="PageInstalling" Visibility="Collapsed">
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="Installing Uptime..." Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FontFamily="Segoe UI Variable Text, Segoe UI" Margin="0,0,0,8" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="InstallingTitle" Text="Installing Uptime..." Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FontFamily="Segoe UI Variable Text, Segoe UI" Margin="0,0,0,8" HorizontalAlignment="Center"/>
                         <TextBlock x:Name="TxtStatus" Text="Extracting files..." Foreground="#AAAAAA" FontSize="13.5" Margin="0,0,0,24" HorizontalAlignment="Center"/>
                         
                         <ProgressBar x:Name="InstallProgressBar" Minimum="0" Maximum="100" Value="20" Height="6" BorderThickness="0" Background="#222222" Foreground="#0078D4">
