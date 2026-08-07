@@ -330,34 +330,13 @@ namespace Uptime
             };
             startItem.Click += (s, e) => SetStartup(startItem.IsChecked);
 
-            var thresholdSubMenu = new MenuItem
+            var thresholdItem = new MenuItem
             {
                 Header = _isPolicyEnforced
                     ? $"Restart Threshold ({_effectiveThresholdDays} Days - IT Policy)"
                     : $"Restart Threshold ({(_effectiveThresholdDays == 0 ? "Disabled" : $"{_effectiveThresholdDays} Days")})",
-                StaysOpenOnClick = true
+                IsEnabled = false
             };
-
-            int[] presets = { 7, 14, 30, 0 };
-            string[] presetLabels = { "7 Days (Recommended)", "14 Days", "30 Days", "Disabled" };
-
-            for (int idx = 0; idx < presets.Length; idx++)
-            {
-                int val = presets[idx];
-                var item = new MenuItem
-                {
-                    Header = presetLabels[idx],
-                    IsCheckable = true,
-                    IsChecked = ((int)_effectiveThresholdDays == val),
-                    IsEnabled = !_isPolicyEnforced
-                };
-                item.Click += (s, e) =>
-                {
-                    SetUserMaxUptimeDays(val);
-                    UpdateUptime();
-                };
-                thresholdSubMenu.Items.Add(item);
-            }
 
             var versionItem = new MenuItem
             {
@@ -394,7 +373,7 @@ namespace Uptime
             };
 
             menu.Items.Add(startItem);
-            menu.Items.Add(thresholdSubMenu);
+            menu.Items.Add(thresholdItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(restartItem);
             menu.Items.Add(new Separator());
@@ -487,29 +466,55 @@ namespace Uptime
 
         private bool IsStartupEnabled()
         {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath);
-            return key?.GetValue(AppRegistryName) != null;
+            // 1. Check HKCU Run key
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath);
+                if (key != null && (key.GetValue(AppRegistryName) != null || key.GetValue("UptimeTaskbarApp") != null))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
+            // 2. Check HKLM Run key (System-wide installation)
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(StartupRegistryPath);
+                if (key != null && (key.GetValue(AppRegistryName) != null || key.GetValue("UptimeTaskbarApp") != null))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         private void SetStartup(bool enable)
         {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath, true);
-            if (key != null)
+            try
             {
-                if (enable)
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath, true);
+                if (key != null)
                 {
-                    string? appPath = Environment.ProcessPath;
-                    if (string.IsNullOrEmpty(appPath))
+                    if (enable)
                     {
-                        appPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
+                        string? appPath = Environment.ProcessPath;
+                        if (string.IsNullOrEmpty(appPath))
+                        {
+                            appPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
+                        }
+                        key.SetValue(AppRegistryName, $"\"{appPath}\"");
                     }
-                    key.SetValue(AppRegistryName, $"\"{appPath}\"");
-                }
-                else
-                {
-                    key.DeleteValue(AppRegistryName, false);
+                    else
+                    {
+                        key.DeleteValue(AppRegistryName, false);
+                        key.DeleteValue("UptimeTaskbarApp", false);
+                    }
                 }
             }
+            catch { }
         }
 
         private double GetEffectiveMaxUptimeDays(out bool isPolicyEnforced)
@@ -778,46 +783,31 @@ namespace Uptime
 
         private IntPtr CreateClockIcon(bool isLightTheme, bool showWarning = false)
         {
-            Bitmap? baseBmp = null;
-            try
-            {
-                string appDir = AppContext.BaseDirectory;
-                string iconPath = System.IO.Path.Combine(appDir, "Assets", "AppIcon.ico");
-                if (!System.IO.File.Exists(iconPath))
-                {
-                    iconPath = System.IO.Path.Combine(appDir, "AppIcon.ico");
-                }
-
-                if (System.IO.File.Exists(iconPath))
-                {
-                    using Icon ico = new Icon(iconPath, 32, 32);
-                    baseBmp = ico.ToBitmap();
-                }
-                else
-                {
-                    string? procPath = Environment.ProcessPath;
-                    if (!string.IsNullOrEmpty(procPath))
-                    {
-                        using Icon? procIcon = Icon.ExtractAssociatedIcon(procPath);
-                        if (procIcon != null)
-                        {
-                            baseBmp = procIcon.ToBitmap();
-                        }
-                    }
-                }
-            }
-            catch { }
-
             Bitmap bmp = new Bitmap(32, 32);
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                if (baseBmp != null)
+                // 1. Draw solid Fluent Blue circle (#0078D4)
+                Color circleColor = Color.FromArgb(255, 0, 120, 212);
+                using (SolidBrush fillBrush = new SolidBrush(circleColor))
                 {
-                    g.DrawImage(baseBmp, 0, 0, 32, 32);
-                    baseBmp.Dispose();
+                    g.FillEllipse(fillBrush, 2f, 2f, 28f, 28f);
+                }
+
+                // 2. Draw white clock hands (9 o'clock and 12 o'clock)
+                using (Pen handPen = new Pen(Color.White, 2.5f))
+                {
+                    handPen.StartCap = LineCap.Round;
+                    handPen.EndCap = LineCap.Round;
+                    handPen.LineJoin = LineJoin.Round;
+
+                    // Center is (16, 16)
+                    // Hour hand points left to (8.5, 16)
+                    // Minute hand points up to (16, 8.5)
+                    g.DrawLine(handPen, 16f, 16f, 8.5f, 16f);
+                    g.DrawLine(handPen, 16f, 16f, 16f, 8.5f);
                 }
 
                 // If uptime exceeds threshold, draw Fluent-style warning badge in bottom-right corner
@@ -874,12 +864,33 @@ namespace Uptime
 
         private string GetAppVersion()
         {
-            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-            if (version != null)
+            try
             {
-                return $"{version.Major}.{version.Minor}.{version.Build}";
+                var assembly = typeof(App).Assembly;
+                var attr = Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute)) as System.Reflection.AssemblyInformationalVersionAttribute;
+                if (attr != null && !string.IsNullOrEmpty(attr.InformationalVersion))
+                {
+                    string ver = attr.InformationalVersion;
+                    int plusIdx = ver.IndexOf('+');
+                    if (plusIdx > 0) ver = ver.Substring(0, plusIdx);
+                    return ver;
+                }
+
+                var fileAttr = Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyFileVersionAttribute)) as System.Reflection.AssemblyFileVersionAttribute;
+                if (fileAttr != null && !string.IsNullOrEmpty(fileAttr.Version))
+                {
+                    return fileAttr.Version;
+                }
+
+                var v = assembly.GetName().Version;
+                if (v != null)
+                {
+                    return $"{v.Major}.{v.Minor}.{v.Build}";
+                }
             }
-            return "1.0.0";
+            catch { }
+
+            return "1.0.1";
         }
 
         private void Cleanup()

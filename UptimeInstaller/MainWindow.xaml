@@ -251,11 +251,11 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <!-- Centered stylized dynamic vector clock icon -->
-                        <Path Data="M 36,1.75 A 34.25,34.25 0 1 1 35.99,1.75 Z M 36,36 L 47,36 M 36,36 L 36,18" 
-                              Fill="#1F2A38" Stroke="#0078D4" StrokeThickness="3.5" 
-                              StrokeEndLineCap="Round" StrokeStartLineCap="Round"
-                              Width="72" Height="72" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                        <!-- Centered vector clock icon matching title bar design -->
+                        <Grid Width="72" Height="72" HorizontalAlignment="Center" Margin="0,0,0,16">
+                            <Path Data="M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 12.5 13 H 7 V 11.5 H 11 V 7 H 12.5 V 13 Z" 
+                                  Fill="#0078D4" Stretch="Uniform"/>
+                        </Grid>
                         
                         <TextBlock x:Name="WelcomeTitle" Text="Welcome to Uptime Setup" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" FontFamily="Segoe UI Variable Display, Segoe UI" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                         <TextBlock x:Name="WelcomeDescription" Text="Easily check your computer's uptime straight from your taskbar!" 
@@ -307,7 +307,7 @@
                         <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="100"/>
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0" x:Name="TxtInstallPath" Style="{StaticResource ModernTextBox}" Height="34" VerticalContentAlignment="Center"/>
                             <Button Grid.Column="1" Content="Browse..." Click="BrowseFolder_Click" Style="{StaticResource ModernButton}" Margin="8,0,0,0" Height="34"/>
