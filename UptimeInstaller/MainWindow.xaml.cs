@@ -62,7 +62,7 @@ namespace UptimeInstaller
                 {
                     if (key != null)
                     {
-                        string? val = key.GetValue("UptimeTaskbarApp") as string;
+                        string? val = (key.GetValue("Uptime") ?? key.GetValue("UptimeTaskbarApp")) as string;
                         if (!string.IsNullOrEmpty(val))
                         {
                             string cleanPath = val.Replace("\"", "").Trim();
@@ -81,7 +81,7 @@ namespace UptimeInstaller
                     {
                         if (key != null)
                         {
-                            string? val = key.GetValue("UptimeTaskbarApp") as string;
+                            string? val = (key.GetValue("Uptime") ?? key.GetValue("UptimeTaskbarApp")) as string;
                             if (!string.IsNullOrEmpty(val))
                             {
                                 string cleanPath = val.Replace("\"", "").Trim();
@@ -97,14 +97,16 @@ namespace UptimeInstaller
                 // 3. Fall back to checking default install paths
                 if (string.IsNullOrEmpty(detectedPath))
                 {
-                    string currentUserExe = Path.Combine(_engine.DefaultCurrentUserPath, "UptimeTaskbarApp.exe");
-                    string allUsersExe = Path.Combine(_engine.DefaultAllUsersPath, "UptimeTaskbarApp.exe");
+                    string currentUserExe1 = Path.Combine(_engine.DefaultCurrentUserPath, "Uptime.exe");
+                    string currentUserExe2 = Path.Combine(_engine.DefaultCurrentUserPath, "UptimeTaskbarApp.exe");
+                    string allUsersExe1 = Path.Combine(_engine.DefaultAllUsersPath, "Uptime.exe");
+                    string allUsersExe2 = Path.Combine(_engine.DefaultAllUsersPath, "UptimeTaskbarApp.exe");
 
-                    if (File.Exists(currentUserExe))
+                    if (File.Exists(currentUserExe1) || File.Exists(currentUserExe2))
                     {
                         detectedPath = _engine.DefaultCurrentUserPath;
                     }
-                    else if (File.Exists(allUsersExe))
+                    else if (File.Exists(allUsersExe1) || File.Exists(allUsersExe2))
                     {
                         detectedPath = _engine.DefaultAllUsersPath;
                         _engine.IsAllUsers = true;

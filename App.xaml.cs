@@ -171,7 +171,7 @@ namespace UptimeTaskbarApp
         private bool _lastShowWarning = false;
         private double _effectiveThresholdDays = 7.0;
         private bool _isPolicyEnforced = false;
-        private bool _hasShownWarningNotification = false;
+        private string _lastTooltipText = "";
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -246,7 +246,7 @@ namespace UptimeTaskbarApp
             // Create a hidden top-level window (parent = IntPtr.Zero)
             // This is required because Shell_NotifyIcon tooltips do not work with message-only (HWND_MESSAGE) windows
             _messageWindow = CreateWindowEx(
-                0, "UptimeTrayMsgWindow", "UptimeTray", 0,
+                0, "UptimeTrayMsgWindow", "Uptime", 0,
                 0, 0, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
@@ -483,7 +483,7 @@ namespace UptimeTaskbarApp
         }
 
         private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string AppRegistryName = "UptimeTaskbarApp";
+        private const string AppRegistryName = "Uptime";
 
         private bool IsStartupEnabled()
         {
@@ -501,7 +501,7 @@ namespace UptimeTaskbarApp
                     string? appPath = Environment.ProcessPath;
                     if (string.IsNullOrEmpty(appPath))
                     {
-                        appPath = System.IO.Path.Combine(AppContext.BaseDirectory, "UptimeTaskbarApp.exe");
+                        appPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
                     }
                     key.SetValue(AppRegistryName, $"\"{appPath}\"");
                 }
@@ -594,6 +594,39 @@ namespace UptimeTaskbarApp
             return false;
         }
 
+        private DateTime _lastNotificationTime = DateTime.MinValue;
+
+        private DateTime GetLastNotificationTime()
+        {
+            if (_lastNotificationTime != DateTime.MinValue) return _lastNotificationTime;
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
+                if (key != null)
+                {
+                    object? val = key.GetValue("LastNotificationTicks");
+                    if (val is long ticks)
+                    {
+                        _lastNotificationTime = new DateTime(ticks, DateTimeKind.Utc);
+                        return _lastNotificationTime;
+                    }
+                }
+            }
+            catch { }
+            return DateTime.MinValue;
+        }
+
+        private void SetLastNotificationTime(DateTime dt)
+        {
+            _lastNotificationTime = dt;
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\UptimeTaskbarApp");
+                key?.SetValue("LastNotificationTicks", dt.Ticks, RegistryValueKind.QWord);
+            }
+            catch { }
+        }
+
         private void LogEventViewerWarning(double uptimeDays, double thresholdDays)
         {
             try
@@ -604,7 +637,7 @@ namespace UptimeTaskbarApp
                 {
                     EventLog.CreateEventSource(source, logName);
                 }
-                EventLog.WriteEntry(source, $"System uptime ({Math.Round(uptimeDays, 1)} days) has exceeded the configured restart threshold ({thresholdDays} days). A system restart is recommended to maintain optimal performance.", EventLogEntryType.Warning, 1001);
+                EventLog.WriteEntry(source, $"System uptime ({Math.Round(uptimeDays, 1)} days) has exceeded the configured restart threshold ({thresholdDays} days). A system restart is required to maintain optimal performance and security.", EventLogEntryType.Warning, 1001);
             }
             catch { /* Ignore event log creation failures if non-admin */ }
         }
@@ -646,6 +679,10 @@ namespace UptimeTaskbarApp
                 _nid.szInfo = message;
                 _nid.dwInfoFlags = NIIF_WARNING;
                 Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+
+                // Clear szInfo and szInfoTitle buffers so subsequent NIM_MODIFY calls for tooltip/icon do NOT re-trigger notification toasts
+                _nid.szInfoTitle = "";
+                _nid.szInfo = "";
             }
             catch { }
         }
@@ -669,27 +706,28 @@ namespace UptimeTaskbarApp
             string tooltipText = $"Uptime: {uptime.Days} {daysStr}, {uptime.Hours} {hoursStr}, {uptime.Minutes} {minsStr}";
             if (showWarning)
             {
-                tooltipText += " (Restart Recommended!)";
+                tooltipText += " (Restart Required)";
                 if (fastStartupActive)
                 {
-                    tooltipText += "\nNote: Fast Startup active — use 'Restart' to reset uptime.";
+                    tooltipText += "\nFast Startup active. Restart to reset uptime.";
                 }
 
-                if (!_hasShownWarningNotification)
+                DateTime lastNotif = GetLastNotificationTime();
+                if ((DateTime.UtcNow - lastNotif).TotalHours >= 24)
                 {
-                    _hasShownWarningNotification = true;
-                    ShowBalloonNotification("Restart Recommended", $"Your computer has been running for {uptime.Days} days. A restart is recommended to maintain system performance.");
+                    SetLastNotificationTime(DateTime.UtcNow);
+                    ShowBalloonNotification("Restart Required", $"Your computer has been running for {uptime.Days} days. A restart is required to maintain optimal performance and security.");
                     LogEventViewerWarning(uptime.TotalDays, thresholdDays);
                 }
             }
-            else
-            {
-                _hasShownWarningNotification = false;
-            }
 
-            _nid.uFlags = NIF_TIP | NIF_SHOWTIP;
-            _nid.szTip = tooltipText;
-            Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+            if (_lastTooltipText != tooltipText)
+            {
+                _lastTooltipText = tooltipText;
+                _nid.uFlags = NIF_TIP | NIF_SHOWTIP;
+                _nid.szTip = tooltipText;
+                Shell_NotifyIcon(NIM_MODIFY, ref _nid);
+            }
 
             UpdateTrayIcon(showWarning);
         }

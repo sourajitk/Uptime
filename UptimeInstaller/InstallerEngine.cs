@@ -20,11 +20,11 @@ namespace UptimeInstaller
 
         public string DefaultCurrentUserPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Programs", "UptimeTaskbarApp");
+            "Programs", "Uptime");
 
         public string DefaultAllUsersPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "UptimeTaskbarApp");
+            "Uptime");
 
         public string GetTargetInstallPath()
         {
@@ -141,7 +141,7 @@ namespace UptimeInstaller
             }
 
             // 3. Extract Embedded Executable
-            string targetExePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
+            string targetExePath = Path.Combine(installPath, "Uptime.exe");
             ExtractEmbeddedApp(targetExePath);
 
             // 4. Create Shortcuts
@@ -223,11 +223,11 @@ namespace UptimeInstaller
         {
             var assembly = Assembly.GetExecutingAssembly();
             string resourceName = assembly.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("UptimeTaskbarApp.exe")) ?? "";
+                .FirstOrDefault(n => n.EndsWith("Uptime.exe") || n.EndsWith("UptimeTaskbarApp.exe")) ?? "";
 
             if (string.IsNullOrEmpty(resourceName))
             {
-                throw new Exception("Embedded UptimeTaskbarApp.exe was not found inside the installer resources.");
+                throw new Exception("Embedded Uptime.exe was not found inside the installer resources.");
             }
 
             using (Stream? resourceStream = assembly.GetManifestResourceStream(resourceName))
@@ -295,12 +295,13 @@ namespace UptimeInstaller
                     {
                         if (enable && !isAllUsers)
                         {
-                            key.SetValue("UptimeTaskbarApp", $"\"{exePath}\"");
+                            key.SetValue("Uptime", $"\"{exePath}\"");
                         }
                         else
                         {
-                            key.DeleteValue("UptimeTaskbarApp", false);
+                            key.DeleteValue("Uptime", false);
                         }
+                        key.DeleteValue("UptimeTaskbarApp", false);
                     }
                 }
             }
@@ -315,12 +316,13 @@ namespace UptimeInstaller
                     {
                         if (enable && isAllUsers)
                         {
-                            key.SetValue("UptimeTaskbarApp", $"\"{exePath}\"");
+                            key.SetValue("Uptime", $"\"{exePath}\"");
                         }
                         else
                         {
-                            key.DeleteValue("UptimeTaskbarApp", false);
+                            key.DeleteValue("Uptime", false);
                         }
+                        key.DeleteValue("UptimeTaskbarApp", false);
                     }
                 }
             }
