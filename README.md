@@ -3,7 +3,7 @@
 Uptime is a lightweight and theme-adaptive Windows utility that displays your system's exact running uptime directly in the system tray.
 
 <p align="center">
-  <img src="https://i.imgur.com/y9VLM4b.png" alt="Uptime Screenshot" />
+  <img src="https://i.imgur.com/LnJTkIE.png" alt="Uptime Screenshot" />
 </p>
 
 ## Features
