@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>icon.ico</ApplicationIcon>
-    
+
     <!-- Publishing & Size Optimization Properties -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
@@ -16,12 +16,23 @@
     <DebugSymbols>false</DebugSymbols>
     <DebugType>none</DebugType>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+
+    <!-- The installer embeds the published (Release) Uptime.exe for the same runtime -->
+    <UptimeAppProject>$(MSBuildThisFileDirectory)..\UptimeTaskbarApp.csproj</UptimeAppProject>
+    <UptimeAppExe>$(MSBuildThisFileDirectory)..\bin\Release\net10.0-windows\$(RuntimeIdentifier)\publish\Uptime.exe</UptimeAppExe>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\bin\Release\net10.0-windows\$(RuntimeIdentifier)\publish\Uptime.exe">
+    <EmbeddedResource Include="$(UptimeAppExe)">
       <Link>Resources\Uptime.exe</Link>
     </EmbeddedResource>
   </ItemGroup>
+
+  <!-- Publish the main app first when its output isn't there yet (e.g. a fresh clone), so
+       `dotnet publish UptimeInstaller` works on its own. CI publishes the app explicitly beforehand. -->
+  <Target Name="EnsureUptimeAppPublished" BeforeTargets="CoreCompile" Condition="!Exists('$(UptimeAppExe)')">
+    <Message Importance="high" Text="Uptime.exe not found - publishing $(UptimeAppProject) ($(RuntimeIdentifier))..." />
+    <Exec Command="dotnet publish &quot;$(UptimeAppProject)&quot; -c Release -r $(RuntimeIdentifier)" />
+  </Target>
 
 </Project>
