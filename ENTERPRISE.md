@@ -33,7 +33,7 @@ IT Administrators can enforce restart recommendation thresholds across domain en
 | **Max Uptime Threshold (System)** | `HKEY_LOCAL_MACHINE\Software\Uptime` | `MaxUptimeDays` | `DWORD` | Fallback machine policy. |
 | **User Threshold Preference** | `HKEY_CURRENT_USER\Software\Uptime` | `MaxUptimeDays` | `DWORD` | End-user threshold preference (default `7`). |
 
-When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Threshold (X Days - IT Policy)` and locks user modification.
+When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Reminder: X days (IT Policy)` and locks user modification. Without a policy, users choose 3, 7, 14, 30 days or Never from the tray menu (stored in `HKCU`).
 
 ### ADMX Administrative Templates
 Group Policy templates are provided in the `policy/` directory:
@@ -53,12 +53,14 @@ Executing `Uptime.exe /status` returns JSON machine status to stdout for RMM age
   "uptime_seconds": 604800,
   "uptime_days": 7.0,
   "uptime_formatted": "7 days, 0 hours, 0 minutes",
-  "threshold_days": 7.0,
+  "threshold_days": 7,
   "is_threshold_exceeded": true,
   "is_policy_enforced": false,
   "fast_startup_enabled": true
 }
 ```
+
+`Uptime.exe` is a GUI-subsystem executable, so some launchers return before it finishes writing. Wait for it explicitly, for example `Start-Process -Wait -NoNewWindow -RedirectStandardOutput status.json -FilePath Uptime.exe -ArgumentList '/status'`, or pipe it in PowerShell (`& ./Uptime.exe /status | ConvertFrom-Json`).
 
 ### 2. Windows Event Log Monitoring
 When system uptime crosses the restart threshold, Uptime logs a Warning to the Windows Event Viewer:
@@ -67,23 +69,26 @@ When system uptime crosses the restart threshold, Uptime logs a Warning to the W
 - **Event ID:** `1001`
 - **Level:** `Warning`
 
+The `Uptime` event source is registered by the installer when it runs elevated (for example, all-users deployments). Without it, the warning is only written if Uptime itself runs as administrator.
+
 SIEM systems (Splunk, Datadog, Microsoft Sentinel) and RMM tools (NinjaOne, N-able, Datto) can query Event ID `1001` to generate reboot compliance reports.
 
 ---
 
 ## Command-Line Syntax
 
-The installer `Uptime-v1.0.0-Setup-win-x64.exe` supports command-line switches for unattended and automated enterprise deployments.
+The installer `Uptime-vX.Y.Z-Setup-win-x64.exe` (or `-win-arm64.exe`; replace `X.Y.Z` with the release version) supports command-line switches for unattended and automated enterprise deployments.
 
 ### Command-Line Options
 
 | Switch | Description |
 | :--- | :--- |
-| `/silent`, `/s`, `/quiet`, `/q` | Runs the installer headlessly without displaying a GUI window. Returns exit code `0` on success, `1` on failure. |
+| `/silent`, `/s`, `/quiet`, `/q` | Runs the installer headlessly without displaying a GUI window. Returns exit code `0` on success, `1` on failure. When elevation is required, the installer waits for the elevated process and returns its exit code. |
 | `/allusers`, `/all` | Forces system-wide installation to `Program Files` and `HKLM`. |
 | `/currentuser`, `/user` | Forces per-user installation to `LocalAppData` and `HKCU`. |
 | `/uninstall`, `/u` | Uninstalls Uptime. Can be combined with `/silent`. |
 | `/dir="C:\Path"` | Overrides default installation directory. |
+| `/startup`, `/nostartup` | Registers (default) or skips the "run at login" entry. |
 | `/launch` | Launches Uptime automatically after silent installation. |
 | `/nolaunch` | Default in silent mode. Prevents auto-launching after installation. |
 
@@ -94,11 +99,11 @@ The installer `Uptime-v1.0.0-Setup-win-x64.exe` supports command-line switches f
 ### 1. Microsoft Intune / SCCM (System-Wide Silent Install)
 - **Install Command:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /allusers
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /allusers
   ```
 - **Uninstall Command:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /allusers
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /uninstall /allusers
   ```
 - **Detection Rule (File):**
   - Path: `C:\Program Files\Uptime`
@@ -110,11 +115,11 @@ The installer `Uptime-v1.0.0-Setup-win-x64.exe` supports command-line switches f
 ### 2. Per-User Silent Install
 - **Install Command:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /currentuser
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /currentuser
   ```
 - **Uninstall Command:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /currentuser
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /uninstall /currentuser
   ```
 
 ---
