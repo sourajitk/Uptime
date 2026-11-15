@@ -4,15 +4,22 @@
     <target prefix="uptime" namespace="Uptime.Policies" />
   </policyNamespaces>
   <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_Windows10" displayName="$(string.SUPPORTED_Windows10)" />
+    </definitions>
+  </supportedOn>
   <categories>
     <category name="UptimeCategory" displayName="$(string.UptimeCategory)" />
   </categories>
   <policies>
-    <policy name="MaxUptimeDaysPolicy" class="Both" displayName="$(string.MaxUptimeDaysPolicy)" explainText="$(string.MaxUptimeDaysPolicy_Help)" key="Software\Policies\Uptime" valueName="MaxUptimeDays">
+    <!-- Machine policy only: Uptime reads HKLM\Software\Policies\Uptime. The policy-level valueName is
+         intentionally omitted so the enabled state doesn't write a competing value over MaxUptimeDays. -->
+    <policy name="MaxUptimeDaysPolicy" class="Machine" displayName="$(string.MaxUptimeDaysPolicy)" explainText="$(string.MaxUptimeDaysPolicy_Help)" key="Software\Policies\Uptime">
       <parentCategory ref="UptimeCategory" />
-      <supportedOn ref="SUPPORTED_Windows7" />
+      <supportedOn ref="SUPPORTED_Windows10" />
       <elements>
-        <decimal id="MaxUptimeDaysValue" valueName="MaxUptimeDays" minValue="0" maxValue="365" />
+        <decimal id="MaxUptimeDaysValue" valueName="MaxUptimeDays" minValue="0" maxValue="365" required="true" />
       </elements>
     </policy>
   </policies>
