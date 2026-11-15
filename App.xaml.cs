@@ -492,8 +492,7 @@ namespace Uptime
         {
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath, true);
-                if (key == null) return;
+                using RegistryKey key = Registry.CurrentUser.CreateSubKey(StartupRegistryPath, true);
 
                 if (enable)
                 {
