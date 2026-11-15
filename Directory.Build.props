@@ -2,7 +2,7 @@
   <!-- Shared by Uptime and its installer (MSBuild picks this file up for every project below this folder).
        Bump the release version here only: CI reads it from this file to name the installer. -->
   <PropertyGroup>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <Company>Sourajit Karmakar</Company>
     <Authors>Sourajit Karmakar</Authors>
     <Copyright>Copyright (c) 2026 Sourajit Karmakar</Copyright>
