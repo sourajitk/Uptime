@@ -11,6 +11,7 @@ namespace UptimeInstaller
 
         private int _currentPage = StepWelcome;
         private bool _isUpgradeFlow;
+        private bool _isUninstallFlow; // started with /uninstall, e.g. from Settings > Apps
         private readonly InstallerEngine _engine;
 
         public MainWindow() : this(new InstallerEngine())
@@ -28,6 +29,11 @@ namespace UptimeInstaller
             TxtInstallPath.Text = _engine.GetTargetInstallPath();
 
             DetectExistingInstallation();
+
+            if (_engine.IsUninstall && _engine.StartPage == 0)
+            {
+                ConfigureUninstallFlow();
+            }
 
             if (_engine.StartPage > 0)
             {
@@ -66,8 +72,12 @@ namespace UptimeInstaller
             _isUpgradeFlow = true;
 
             // Keep scope and settings of the existing install so an upgrade never silently changes them
-            if (existing.IsAllUsers) RadioAllUsers.IsChecked = true; else RadioCurrentUser.IsChecked = true;
-            _engine.IsAllUsers = existing.IsAllUsers;
+            // (unless the command line chose them, e.g. the Settings > Apps uninstall command or an elevated relaunch)
+            if (!_engine.IsScopeExplicit)
+            {
+                if (existing.IsAllUsers) RadioAllUsers.IsChecked = true; else RadioCurrentUser.IsChecked = true;
+                _engine.IsAllUsers = existing.IsAllUsers;
+            }
 
             if (string.IsNullOrWhiteSpace(_engine.CustomInstallPath))
             {
@@ -82,6 +92,14 @@ namespace UptimeInstaller
             WelcomeDescription.Text = $"An existing installation of Uptime was detected at:\n{existing.Directory}\n\nClick Upgrade to update to the latest version.";
             WelcomeFooter.Text = "Click Upgrade to continue, or Uninstall to remove Uptime.";
             BtnNext.Content = "Upgrade";
+        }
+
+        private void ConfigureUninstallFlow()
+        {
+            _isUninstallFlow = true;
+            WelcomeTitle.Text = "Uninstall Uptime";
+            WelcomeDescription.Text = $"Uptime will be removed from:\n{ResolveInstallPath()}\n\nYour restart reminder preference is kept in case you reinstall.";
+            WelcomeFooter.Text = "Click Uninstall to continue.";
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -122,12 +140,12 @@ namespace UptimeInstaller
             BtnBack.Visibility = navigable && _currentPage > StepWelcome ? Visibility.Visible : Visibility.Collapsed;
             BtnCancel.Visibility = navigable ? Visibility.Visible : Visibility.Collapsed;
             BtnNext.Visibility = _currentPage == StepInstalling ? Visibility.Collapsed : Visibility.Visible;
-            BtnUninstall.Visibility = _currentPage == StepWelcome && _isUpgradeFlow ? Visibility.Visible : Visibility.Collapsed;
+            BtnUninstall.Visibility = _currentPage == StepWelcome && _isUpgradeFlow && !_isUninstallFlow ? Visibility.Visible : Visibility.Collapsed;
 
             switch (_currentPage)
             {
                 case StepWelcome:
-                    BtnNext.Content = _isUpgradeFlow ? "Upgrade" : "Next";
+                    BtnNext.Content = _isUninstallFlow ? "Uninstall" : _isUpgradeFlow ? "Upgrade" : "Next";
                     BtnNext.IsEnabled = true;
                     break;
                 case StepLicense:
@@ -153,7 +171,11 @@ namespace UptimeInstaller
 
         private void Next_Click(object sender, RoutedEventArgs e)
         {
-            if ((_currentPage == StepWelcome && _isUpgradeFlow) || _currentPage == StepFolder)
+            if (_currentPage == StepWelcome && _isUninstallFlow)
+            {
+                BeginUninstall(); // the page itself is the confirmation
+            }
+            else if ((_currentPage == StepWelcome && _isUpgradeFlow) || _currentPage == StepFolder)
             {
                 StartInstallation();
             }
@@ -283,6 +305,11 @@ namespace UptimeInstaller
 
             if (confirm != MessageBoxResult.Yes) return;
 
+            BeginUninstall();
+        }
+
+        private void BeginUninstall()
+        {
             string installPath = ResolveInstallPath();
             bool isAllUsers = RadioAllUsers.IsChecked == true;
             bool enableStartup = ChkStartup.IsChecked == true;

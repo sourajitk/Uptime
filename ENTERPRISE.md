@@ -12,12 +12,18 @@ Uptime supports two installation scopes:
    - Target Folder: `%localappdata%\Programs\Uptime`
    - Startup Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
    - Start Menu Shortcut: `%appdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
+   - Apps & Features Entry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Uptime`
 
 2. **System-Wide / All Users Installation (Recommended for Enterprise Management)**
    - Target Folder: `%programfiles%\Uptime`
    - Startup Registry: `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
    - Start Menu Shortcut: `%programdata%\Microsoft\Windows\Start Menu\Programs\Uptime.lnk`
+   - Apps & Features Entry: `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Uptime`
    - Requires administrative privileges during installation.
+
+Both scopes install two files: `Uptime.exe` and `Uninstall.exe` (a copy of the setup program, used by **Settings › Apps** to remove Uptime).
+
+The Apps & Features entry records `DisplayVersion`, `InstallLocation`, `UninstallString` and `QuietUninstallString`, so management tools can uninstall Uptime without the original setup file.
 
 ---
 
@@ -105,12 +111,19 @@ The installer `Uptime-vX.Y.Z-Setup-win-x64.exe` (or `-win-arm64.exe`; replace `X
   ```cmd
   Uptime-vX.Y.Z-Setup-win-x64.exe /silent /uninstall /allusers
   ```
+- **Uninstall Without the Setup File:**
+  ```cmd
+  "C:\Program Files\Uptime\Uninstall.exe" /silent /uninstall /allusers
+  ```
+- **Detection Rule (Registry, recommended):**
+  - Key: `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\Uptime`
+  - Value Name: `DisplayVersion`
+  - Detection method: Version comparison, equals `X.Y.Z` (also detects outdated versions for supersedence)
 - **Detection Rule (File):**
   - Path: `C:\Program Files\Uptime`
   - File: `Uptime.exe`
-- **Detection Rule (Registry):**
-  - Key: `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`
-  - Value Name: `Uptime`
+
+The Run entry is not a reliable detection rule: installing with `/nostartup` (or a user turning off **Start at login**) removes it while Uptime stays installed.
 
 ### 2. Per-User Silent Install
 - **Install Command:**

@@ -20,14 +20,27 @@ namespace UptimeInstaller
         private const string AppName = "Uptime";
         private const string LegacyAppName = "UptimeTaskbarApp";
         private const string EventSource = "Uptime";
+        private const string Publisher = "Sourajit Karmakar";
+        private const string RepositoryUrl = "https://github.com/sourajitk/Uptime";
+
+        // Settings > Apps entry (HKCU for per-user installs, HKLM for all users)
+        private const string UninstallKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Uptime";
+
+        // A copy of this installer kept in the install folder, so Uptime can be removed from Settings > Apps
+        public const string UninstallerFileName = "Uninstall.exe";
 
         // Only these files are ever deleted from an install folder. The folder may be user-chosen (e.g. an
         // existing directory), so it must never be wiped wholesale.
-        private static readonly string[] InstalledFileNames = { "Uptime.exe", "UptimeTaskbarApp.exe" };
+        private static readonly string[] InstalledFileNames = { "Uptime.exe", "UptimeTaskbarApp.exe", UninstallerFileName };
+
+        // Set when this process is the installed Uninstall.exe and removed everything else: it deletes itself on exit
+        private string? _pendingSelfDeleteFolder;
 
         public bool IsSilent { get; set; }
         public bool IsUninstall { get; set; }
         public bool IsAllUsers { get; set; }
+        /// <summary>True when /allusers, /currentuser or /dir was given, so detection of an existing install must not override it.</summary>
+        public bool IsScopeExplicit { get; private set; }
         public bool LaunchApp { get; set; } = true;
         public bool EnableStartup { get; set; } = true;
         public string? CustomInstallPath { get; set; }
@@ -88,9 +101,11 @@ namespace UptimeInstaller
                         continue;
                     case "/allusers": case "/all": case "--allusers": case "--all":
                         IsAllUsers = true;
+                        IsScopeExplicit = true;
                         continue;
                     case "/currentuser": case "/user": case "--currentuser": case "--user":
                         IsAllUsers = false;
+                        IsScopeExplicit = true;
                         continue;
                     case "/launch": case "--launch":
                         LaunchApp = true;
@@ -115,6 +130,7 @@ namespace UptimeInstaller
                 else if (TryGetValue(arg, out string dir, "/dir=", "--dir=", "/d="))
                 {
                     CustomInstallPath = dir;
+                    IsScopeExplicit = true;
                 }
             }
 
@@ -130,19 +146,24 @@ namespace UptimeInstaller
         /// <summary>Builds the switches needed to repeat the current operation in an elevated copy of the installer.</summary>
         public string BuildElevationArguments(string installPath, bool isAllUsers, bool enableStartup, bool uninstall, bool silent, bool launch)
         {
-            // A trailing backslash would escape the closing quote, so double it ("C:\" -> "C:\\", which parses back to C:\)
-            string dir = installPath.TrimEnd('\\');
-            if (dir.Length < installPath.Length) dir += @"\\";
-
             var sb = new StringBuilder();
             if (silent) sb.Append("/silent ");
             else sb.Append("/page=3 ");
             if (uninstall) sb.Append("/uninstall ");
-            sb.Append($"/dir=\"{dir}\" ");
+            sb.Append(DirArgument(installPath)).Append(' ');
             sb.Append(isAllUsers ? "/allusers " : "/currentuser ");
             sb.Append(enableStartup ? "/startup " : "/nostartup ");
             if (silent) sb.Append(launch ? "/launch" : "/nolaunch");
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>Builds a quoted /dir="..." switch.</summary>
+        private static string DirArgument(string installPath)
+        {
+            // A trailing backslash would escape the closing quote, so double it ("C:\" -> "C:\\", which parses back to C:\)
+            string dir = installPath.TrimEnd('\\');
+            if (dir.Length < installPath.Length) dir += @"\\";
+            return $"/dir=\"{dir}\"";
         }
 
         // ── Privileges ──
@@ -260,17 +281,21 @@ namespace UptimeInstaller
             Directory.CreateDirectory(installPath);
             RemoveInstalledFiles(installPath);
 
-            progress?.Invoke("Extracting files...", 60);
+            progress?.Invoke("Extracting files...", 55);
             string targetExePath = Path.Combine(installPath, "Uptime.exe");
             ExtractEmbeddedApp(targetExePath);
+            CopyUninstaller(installPath);
 
-            progress?.Invoke("Creating shortcuts...", 80);
+            progress?.Invoke("Creating shortcuts...", 70);
             RemoveStartMenuShortcut(); // clears a stale shortcut from the other scope
             CreateStartMenuShortcut(targetExePath, installPath, isAllUsers);
 
-            progress?.Invoke("Configuring startup settings...", 90);
+            progress?.Invoke("Configuring startup settings...", 80);
             ConfigureStartup(targetExePath, enableStartup, isAllUsers);
             RegisterEventLogSource();
+
+            progress?.Invoke("Registering with Windows...", 90);
+            RegisterUninstallEntry(installPath, isAllUsers);
 
             progress?.Invoke("Finalizing...", 100);
 
@@ -297,13 +322,147 @@ namespace UptimeInstaller
             {
                 RemoveInstalledFiles(installPath);
                 RemoveDirectoryIfEmpty(installPath);
+
+                // Started from Settings > Apps: this process *is* the installed Uninstall.exe and can't delete itself yet
+                if (IsRunningFrom(installPath))
+                {
+                    _pendingSelfDeleteFolder = installPath;
+                }
             }
             if (isAllUsers)
             {
                 UnregisterEventLogSource();
             }
 
+            UnregisterUninstallEntry(isAllUsers);
+
             progress?.Invoke("Finalizing...", 100);
+        }
+
+        // ── Settings > Apps registration ──
+        private static string? RunningExePath
+        {
+            get
+            {
+                try { return Environment.ProcessPath is { } p ? Path.GetFullPath(p) : null; }
+                catch { return null; }
+            }
+        }
+
+        private static bool IsRunningFrom(string folder)
+        {
+            string? exe = RunningExePath;
+            if (exe == null) return false;
+            try
+            {
+                return string.Equals(Path.GetDirectoryName(exe), Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Keeps a copy of this installer in the install folder; Settings > Apps runs it to uninstall.</summary>
+        private static void CopyUninstaller(string installPath)
+        {
+            string? source = RunningExePath;
+            if (source == null) throw new InvalidOperationException("Could not determine the installer's own path.");
+
+            string target = Path.Combine(installPath, UninstallerFileName);
+            if (string.Equals(source, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                return; // Re-installing from the installed Uninstall.exe itself
+            }
+            File.Copy(source, target, overwrite: true);
+        }
+
+        private static void RegisterUninstallEntry(string installPath, bool isAllUsers)
+        {
+            string appExe = Path.Combine(installPath, "Uptime.exe");
+            string uninstaller = Path.Combine(installPath, UninstallerFileName);
+            string scope = isAllUsers ? "/allusers" : "/currentuser";
+            string uninstallCommand = $"\"{uninstaller}\" /uninstall {scope} {DirArgument(installPath)}";
+
+            long sizeBytes = 0;
+            foreach (string file in new[] { appExe, uninstaller })
+            {
+                try { sizeBytes += new FileInfo(file).Length; } catch { }
+            }
+
+            // An entry in the other scope would be a stale duplicate (e.g. after switching from per-user to all users)
+            UnregisterUninstallEntry(!isAllUsers);
+
+            RegistryKey root = isAllUsers ? Registry.LocalMachine : Registry.CurrentUser;
+            using RegistryKey key = root.CreateSubKey(UninstallKeyPath, true);
+            key.SetValue("DisplayName", "Uptime");
+            key.SetValue("DisplayVersion", GetProductVersion(appExe));
+            key.SetValue("Publisher", Publisher);
+            key.SetValue("DisplayIcon", $"{appExe},0");
+            key.SetValue("InstallLocation", installPath);
+            key.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
+            key.SetValue("UninstallString", uninstallCommand);
+            key.SetValue("QuietUninstallString", uninstallCommand + " /silent");
+            key.SetValue("URLInfoAbout", RepositoryUrl);
+            key.SetValue("HelpLink", RepositoryUrl);
+            key.SetValue("EstimatedSize", (int)Math.Min(int.MaxValue, sizeBytes / 1024), RegistryValueKind.DWord);
+            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+        }
+
+        private static void UnregisterUninstallEntry(bool isAllUsers)
+        {
+            try
+            {
+                (isAllUsers ? Registry.LocalMachine : Registry.CurrentUser).DeleteSubKeyTree(UninstallKeyPath, throwOnMissingSubKey: false);
+            }
+            catch { /* e.g. HKLM without administrator rights */ }
+        }
+
+        private static string GetProductVersion(string exePath)
+        {
+            try
+            {
+                string? ver = FileVersionInfo.GetVersionInfo(exePath).ProductVersion;
+                if (!string.IsNullOrWhiteSpace(ver))
+                {
+                    int plus = ver.IndexOf('+'); // strip source revision metadata
+                    return plus > 0 ? ver[..plus] : ver;
+                }
+            }
+            catch { }
+            return typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "";
+        }
+
+        /// <summary>
+        /// Call when the process is about to exit. If this process is the installed Uninstall.exe and just uninstalled
+        /// Uptime, a hidden command deletes it (and the then-empty folder) once the process has exited and released the file.
+        /// </summary>
+        public void RunPendingSelfDelete()
+        {
+            string? folder = _pendingSelfDeleteFolder;
+            string? exe = RunningExePath;
+            _pendingSelfDeleteFolder = null;
+            if (folder == null || exe == null) return;
+
+            // Only ever this one known file, and the folder only if it is empty (rd without /s)
+            if (!string.Equals(Path.GetFileName(exe), UninstallerFileName, StringComparison.OrdinalIgnoreCase)) return;
+            string dir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+
+            // Retry for up to ~30 s: ping provides a one-second pause without needing a console (unlike timeout.exe).
+            string command = $"/d /c (for /l %i in (1,1,30) do @if exist \"{exe}\" (ping -n 2 127.0.0.1 >nul & del /f /q \"{exe}\" 2>nul)) & rd \"{dir}\" 2>nul";
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                    Arguments = command,
+                    WorkingDirectory = Environment.SystemDirectory, // must not be the folder being removed
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch { /* Best effort: at worst Uninstall.exe is left behind */ }
         }
 
         /// <summary>
@@ -352,10 +511,14 @@ namespace UptimeInstaller
         /// <summary>Deletes Uptime's own executables from a folder, leaving any other files untouched.</summary>
         public void RemoveInstalledFiles(string path)
         {
+            string? runningExe = RunningExePath;
             foreach (string name in InstalledFileNames)
             {
                 string file = Path.Combine(path, name);
                 if (!File.Exists(file)) continue;
+
+                // The running Uninstall.exe can't be deleted while in use; it is replaced by CopyUninstaller or self-deleted on exit
+                if (runningExe != null && string.Equals(Path.GetFullPath(file), runningExe, StringComparison.OrdinalIgnoreCase)) continue;
 
                 // The process may need a moment to release its image after being killed
                 for (int attempt = 1; ; attempt++)
@@ -446,7 +609,16 @@ namespace UptimeInstaller
                     return new ExistingInstall(machineDir, IsAllUsers: true, StartsAtLogin: true);
                 }
 
-                // Startup was disabled: fall back to the default locations
+                // Startup was disabled: use the Settings > Apps registration, then the default locations
+                foreach ((RegistryKey root, bool allUsers) in new[] { (Registry.CurrentUser, false), (Registry.LocalMachine, true) })
+                {
+                    using RegistryKey? key = root.OpenSubKey(UninstallKeyPath);
+                    if (key?.GetValue("InstallLocation") is string dir && File.Exists(Path.Combine(dir, "Uptime.exe")))
+                    {
+                        return new ExistingInstall(dir, allUsers, StartsAtLogin: false);
+                    }
+                }
+
                 foreach ((string dir, bool allUsers) in new[] { (DefaultCurrentUserPath, false), (DefaultAllUsersPath, true) })
                 {
                     if (InstalledFileNames.Any(n => File.Exists(Path.Combine(dir, n))))

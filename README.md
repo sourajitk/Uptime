@@ -25,6 +25,8 @@ Download the latest installer from the [Releases](https://github.com/sourajitk/U
 ### Interactive GUI Installation
 Run `Uptime-vX.Y.Z-Setup-win-x64.exe` (or `-win-arm64.exe`) and follow the wizard to select per-user (`LocalAppData`) or system-wide (`Program Files`) installation.
 
+To uninstall, open **Settings › Apps › Installed apps**, find **Uptime** and select **Uninstall**.
+
 ### Silent Enterprise Installation
 For mass deployment via IT administration software (Intune, SCCM, PDQ Deploy, GPO):
 

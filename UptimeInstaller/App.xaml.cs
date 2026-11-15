@@ -4,17 +4,27 @@ namespace UptimeInstaller;
 
 public partial class App : Application
 {
+    private InstallerEngine? _engine;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        var engine = new InstallerEngine();
-        if (engine.ParseCommandLine(e.Args))
+        _engine = new InstallerEngine();
+        if (_engine.ParseCommandLine(e.Args))
         {
-            Environment.Exit(engine.RunSilent());
+            int exitCode = _engine.RunSilent();
+            _engine.RunPendingSelfDelete();
+            Environment.Exit(exitCode);
             return;
         }
 
-        new MainWindow(engine).Show();
+        new MainWindow(_engine).Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _engine?.RunPendingSelfDelete();
+        base.OnExit(e);
     }
 }
