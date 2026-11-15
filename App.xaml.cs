@@ -55,6 +55,15 @@ namespace Uptime
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int nIndex);
 
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("shcore.dll")]
+        private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
         [DllImport("kernel32.dll")]
         private static extern bool AttachConsole(int dwProcessId);
 
@@ -125,6 +134,8 @@ namespace Uptime
 
         private const int ATTACH_PARENT_PROCESS = -1;
         private const int SM_CXSMICON = 49;
+        private const uint MONITOR_DEFAULTTOPRIMARY = 1;
+        private const int MDT_EFFECTIVE_DPI = 0;
 
         private const uint WM_APP = 0x8000;
         private const uint WM_TRAYICON = WM_APP + 1;
@@ -282,6 +293,9 @@ namespace Uptime
         // ── Tray icon plumbing ──
         private void AddTrayIcon()
         {
+            // Remove first: TaskbarCreated is also broadcast on DPI changes, when our icon still exists and NIM_ADD would fail.
+            Shell_NotifyIcon(NIM_DELETE, ref _nid);
+
             _nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
             _nid.hIcon = _iconHandle;
             Shell_NotifyIcon(NIM_ADD, ref _nid);
@@ -309,7 +323,8 @@ namespace Uptime
             }
             else if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
             {
-                // Explorer restarted: re-register the tray icon
+                // Explorer restarted or the display scale changed: re-render the icon for the current DPI and re-register it.
+                UpdateTrayIcon(_lastShowWarning, force: true);
                 AddTrayIcon();
             }
             else if (msg == WM_SETTINGCHANGE)
@@ -715,17 +730,32 @@ namespace Uptime
             }
         }
 
+        /// <summary>
+        /// Small-icon size at the primary monitor's *current* DPI (where the taskbar notification area lives).
+        /// Plain GetSystemMetrics is frozen at the sign-in DPI for per-monitor-aware processes, so it misses scale changes.
+        /// </summary>
         private static int GetTrayIconSize()
         {
-            int size = GetSystemMetrics(SM_CXSMICON);
+            int size = 0;
+            try
+            {
+                IntPtr monitor = MonitorFromPoint(new POINT { X = 0, Y = 0 }, MONITOR_DEFAULTTOPRIMARY);
+                if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpi, out _) == 0 && dpi > 0)
+                {
+                    size = GetSystemMetricsForDpi(SM_CXSMICON, dpi);
+                }
+            }
+            catch { }
+
+            if (size <= 0) size = GetSystemMetrics(SM_CXSMICON);
             return size >= 16 ? size : 16;
         }
 
-        private void UpdateTrayIcon(bool showWarning = false)
+        private void UpdateTrayIcon(bool showWarning = false, bool force = false)
         {
             bool isLightTheme = IsSystemLightTheme();
             int iconSize = GetTrayIconSize();
-            if (_lastIsLightTheme == isLightTheme && _lastShowWarning == showWarning && _lastIconSize == iconSize)
+            if (!force && _lastIsLightTheme == isLightTheme && _lastShowWarning == showWarning && _lastIconSize == iconSize)
             {
                 return;
             }
