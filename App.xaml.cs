@@ -1,14 +1,16 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Text;
 using System.Drawing.Drawing2D;
+using System.Globalization;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
-using System.Windows.Threading;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace Uptime
@@ -41,21 +43,7 @@ namespace Uptime
         private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
         [DllImport("user32.dll")]
-        private static extern IntPtr CreatePopupMenu();
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern bool InsertMenu(IntPtr hMenu, uint uPosition, uint uFlags,
-            IntPtr uIDNewItem, string lpNewItem);
-
-        [DllImport("user32.dll")]
-        private static extern int TrackPopupMenuEx(IntPtr hMenu, uint fuFlags, int x, int y,
-            IntPtr hWnd, IntPtr lptpm);
-
-        [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern bool DestroyMenu(IntPtr hMenu);
 
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out POINT lpPoint);
@@ -64,7 +52,7 @@ namespace Uptime
         private static extern bool DestroyIcon(IntPtr hIcon);
 
         [DllImport("user32.dll")]
-        private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        private static extern int GetSystemMetrics(int nIndex);
 
         [DllImport("kernel32.dll")]
         private static extern bool AttachConsole(int dwProcessId);
@@ -129,33 +117,32 @@ namespace Uptime
         private const uint NIF_ICON = 0x02;
         private const uint NIF_TIP = 0x04;
         private const uint NIF_INFO = 0x10;
-        private const uint NIF_SHOWTIP = 0x10;
+        private const uint NIF_SHOWTIP = 0x80;
         private const uint NIIF_WARNING = 0x02;
-
-        private const int ATTACH_PARENT_PROCESS = -1;
 
         private const uint NOTIFYICON_VERSION_4 = 4;
 
+        private const int ATTACH_PARENT_PROCESS = -1;
+        private const int SM_CXSMICON = 49;
+
         private const uint WM_APP = 0x8000;
         private const uint WM_TRAYICON = WM_APP + 1;
-        private const uint WM_COMMAND = 0x0111;
-        private const uint WM_CLOSE = 0x0010;
-
-        private const uint WM_LBUTTONUP = 0x0202;
         private const uint WM_RBUTTONUP = 0x0205;
         private const uint WM_CONTEXTMENU = 0x007B;
         private const uint WM_SETTINGCHANGE = 0x001A;
 
-        private const uint MF_STRING = 0x00;
-        private const uint MF_CHECKED = 0x0008;
-        private const uint TPM_RIGHTBUTTON = 0x0002;
-        private const uint TPM_RETURNCMD = 0x0100;
+        private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string AppRegistryName = "Uptime";
+        private const string LegacyAppRegistryName = "UptimeTaskbarApp";
+        private const string PolicyRegistryPath = @"Software\Policies\Uptime";
+        private const string SettingsRegistryPath = @"Software\Uptime";
+        private const string LegacySettingsRegistryPath = @"Software\UptimeTaskbarApp";
+        private const string MaxUptimeDaysValue = "MaxUptimeDays";
+        private const int DefaultThresholdDays = 7;
+        private const string RepositoryUrl = "https://github.com/sourajitk/Uptime";
 
-        private const int IDM_EXIT = 1000;
-        private const int IDM_STARTUP = 1001;
-
-        // HWND_MESSAGE = (IntPtr)(-3)  — message-only window parent
-        private static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
+        // Preset restart-reminder choices offered in the tray menu (0 = never).
+        private static readonly int[] ThresholdChoices = { 3, 7, 14, 30 };
 
         // ── Fields ──
         private IntPtr _messageWindow;
@@ -166,44 +153,25 @@ namespace Uptime
         private Window? _dummyWindow;
         private static Mutex? _appMutex;
         private bool? _lastIsLightTheme;
-        private Icon? _loadedIcon;
+        private int _lastIconSize;
         private uint _wmTaskbarCreated;
-        private bool _lastShowWarning = false;
-        private double _effectiveThresholdDays = 7.0;
-        private bool _isPolicyEnforced = false;
+        private bool _lastShowWarning;
+        private bool _trayUsesVersion4;
+        private bool _cleanedUp;
+        private int _effectiveThresholdDays = DefaultThresholdDays;
+        private bool _isPolicyEnforced;
         private string _lastTooltipText = "";
+        private DateTime _lastNotificationTime = DateTime.MinValue;
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            string[] args = Environment.GetCommandLineArgs();
-            if (args.Any(a => a.Equals("/status", StringComparison.OrdinalIgnoreCase) || a.Equals("--status", StringComparison.OrdinalIgnoreCase)))
+            if (e.Args.Any(a => a.Equals("/status", StringComparison.OrdinalIgnoreCase) || a.Equals("--status", StringComparison.OrdinalIgnoreCase)))
             {
-                AttachConsole(ATTACH_PARENT_PROCESS);
-
-                long currentTickMs = Environment.TickCount64;
-                TimeSpan currentUptime = TimeSpan.FromMilliseconds(currentTickMs);
-                double currentThreshold = GetEffectiveMaxUptimeDays(out bool policyEnforced);
-                bool currentWarning = currentThreshold > 0 && currentUptime.TotalDays >= currentThreshold;
-                bool fastStartupActive = IsFastStartupEnabled();
-
-                string jsonOutput = "{\n" +
-                    $"  \"uptime_seconds\": {currentTickMs / 1000},\n" +
-                    $"  \"uptime_days\": {Math.Round(currentUptime.TotalDays, 2)},\n" +
-                    $"  \"uptime_formatted\": \"{currentUptime.Days} days, {currentUptime.Hours} hours, {currentUptime.Minutes} minutes\",\n" +
-                    $"  \"threshold_days\": {currentThreshold},\n" +
-                    $"  \"is_threshold_exceeded\": {currentWarning.ToString().ToLower()},\n" +
-                    $"  \"is_policy_enforced\": {policyEnforced.ToString().ToLower()},\n" +
-                    $"  \"fast_startup_enabled\": {fastStartupActive.ToString().ToLower()}\n" +
-                    "}";
-
-                Console.WriteLine(jsonOutput);
-                Environment.Exit(0);
+                PrintStatusAndExit();
                 return;
             }
 
-            const string mutexName = "Uptime_SingleInstanceMutex";
-            _appMutex = new Mutex(true, mutexName, out bool createdNew);
-
+            _appMutex = new Mutex(true, "Uptime_SingleInstanceMutex", out bool createdNew);
             if (!createdNew)
             {
                 // Another instance is already running, exit immediately
@@ -252,12 +220,11 @@ namespace Uptime
 
             _wmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
 
-            // Load app icon (installer icon)
             bool isLightTheme = IsSystemLightTheme();
             _lastIsLightTheme = isLightTheme;
-            _iconHandle = CreateClockIcon(isLightTheme, false);
+            _lastIconSize = GetTrayIconSize();
+            _iconHandle = CreateClockIcon(isLightTheme, false, _lastIconSize);
 
-            // Setup NOTIFYICONDATA — identical to how Task Manager does it
             _nid = new NOTIFYICONDATA
             {
                 cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>(),
@@ -271,7 +238,7 @@ namespace Uptime
                 szInfoTitle = ""
             };
 
-            Shell_NotifyIcon(NIM_ADD, ref _nid);
+            AddTrayIcon();
 
             // Timer to update uptime every 30 seconds
             _timer = new DispatcherTimer
@@ -284,14 +251,56 @@ namespace Uptime
             UpdateUptime();
         }
 
+        /// <summary>
+        /// Handles `Uptime.exe /status`: prints machine status as JSON for RMM / audit scripts.
+        /// </summary>
+        private void PrintStatusAndExit()
+        {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+
+            long tickMs = Environment.TickCount64;
+            TimeSpan uptime = TimeSpan.FromMilliseconds(tickMs);
+            int threshold = GetEffectiveMaxUptimeDays(out bool policyEnforced);
+            bool exceeded = threshold > 0 && uptime.TotalDays >= threshold;
+
+            // Invariant culture: the output must be valid JSON regardless of the machine's locale.
+            string json = FormattableString.Invariant($@"{{
+  ""uptime_seconds"": {tickMs / 1000},
+  ""uptime_days"": {Math.Round(uptime.TotalDays, 2)},
+  ""uptime_formatted"": ""{uptime.Days} days, {uptime.Hours} hours, {uptime.Minutes} minutes"",
+  ""threshold_days"": {threshold},
+  ""is_threshold_exceeded"": {(exceeded ? "true" : "false")},
+  ""is_policy_enforced"": {(policyEnforced ? "true" : "false")},
+  ""fast_startup_enabled"": {(IsFastStartupEnabled() ? "true" : "false")}
+}}");
+
+            Console.WriteLine(json);
+            Environment.Exit(0);
+        }
+
+        // ── Tray icon plumbing ──
+        private void AddTrayIcon()
+        {
+            _nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+            _nid.hIcon = _iconHandle;
+            Shell_NotifyIcon(NIM_ADD, ref _nid);
+
+            // Version 4 gives us WM_CONTEXTMENU for both mouse and keyboard (Shift+F10 / Menu key) activation.
+            _nid.uVersion = NOTIFYICON_VERSION_4;
+            _trayUsesVersion4 = Shell_NotifyIcon(NIM_SETVERSION, ref _nid);
+        }
+
         private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             if (msg == WM_TRAYICON)
             {
-                // NOTIFYICON_VERSION_4: low word of lParam = event, high word = icon x/y
+                // Low word of lParam = notification event (both legacy and version 4 behaviour).
                 uint eventId = (uint)(lParam.ToInt64() & 0xFFFF);
 
-                if (eventId == WM_RBUTTONUP || eventId == WM_CONTEXTMENU)
+                // Version 4 sends WM_CONTEXTMENU for right-click and keyboard; the legacy protocol only sends WM_RBUTTONUP.
+                // Reacting to just one of them avoids opening the menu twice.
+                uint contextEvent = _trayUsesVersion4 ? WM_CONTEXTMENU : WM_RBUTTONUP;
+                if (eventId == contextEvent)
                 {
                     ShowContextMenu();
                     return IntPtr.Zero;
@@ -299,7 +308,8 @@ namespace Uptime
             }
             else if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
             {
-                ReaddTrayIcon();
+                // Explorer restarted: re-register the tray icon
+                AddTrayIcon();
             }
             else if (msg == WM_SETTINGCHANGE)
             {
@@ -309,15 +319,10 @@ namespace Uptime
             return DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
-        private void ReaddTrayIcon()
-        {
-            _nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
-            _nid.hIcon = _iconHandle;
-            Shell_NotifyIcon(NIM_ADD, ref _nid);
-        }
-
         private void ShowContextMenu()
         {
+            if (_dummyWindow == null) return;
+
             UpdateThemeBrushes();
 
             var menu = new ContextMenu();
@@ -328,7 +333,7 @@ namespace Uptime
                 IsCheckable = true,
                 IsChecked = IsStartupEnabled()
             };
-            startItem.Click += (s, e) => SetStartup(startItem.IsChecked);
+            startItem.Click += (_, _) => SetStartup(startItem.IsChecked);
 
             var thresholdItem = new MenuItem
             {
@@ -338,104 +343,63 @@ namespace Uptime
                 IsEnabled = false
             };
 
-            var versionItem = new MenuItem
-            {
-                Header = $"Version {GetAppVersion()}",
-                IsEnabled = false
-            };
+            var restartItem = new MenuItem { Header = "Restart Computer..." };
+            restartItem.Click += (_, _) => PromptAndRestartComputer();
 
-            var copyrightItem = new MenuItem
-            {
-                Header = $"Copyright (c) {DateTime.Now.Year} Sourajit Karmakar",
-                IsEnabled = false
-            };
+            var sourceItem = new MenuItem { Header = "View the source code on GitHub" };
+            sourceItem.Click += (_, _) => OpenUrl(RepositoryUrl);
 
-            var sourceItem = new MenuItem
-            {
-                Header = "View the source code on GitHub"
-            };
-            sourceItem.Click += (s, e) => OpenUrl("https://github.com/sourajitk/Uptime");
-
-            var restartItem = new MenuItem
-            {
-                Header = "Restart Computer..."
-            };
-            restartItem.Click += (s, e) => PromptAndRestartComputer();
-
-            var exitItem = new MenuItem
-            {
-                Header = "Exit"
-            };
-            exitItem.Click += (s, e) =>
-            {
-                Cleanup();
-                Dispatcher.BeginInvoke(() => Current.Shutdown());
-            };
+            var exitItem = new MenuItem { Header = "Exit" };
+            exitItem.Click += (_, _) => Dispatcher.BeginInvoke(() => Current.Shutdown());
 
             menu.Items.Add(startItem);
             menu.Items.Add(thresholdItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(restartItem);
             menu.Items.Add(new Separator());
-            menu.Items.Add(versionItem);
-            menu.Items.Add(copyrightItem);
+            menu.Items.Add(new MenuItem { Header = $"Version {GetAppVersion()}", IsEnabled = false });
+            menu.Items.Add(new MenuItem { Header = "Copyright (c) 2026 Sourajit Karmakar", IsEnabled = false });
             menu.Items.Add(sourceItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(exitItem);
 
-            // Get mouse cursor position
+            // Position the dummy window at the mouse and host the menu on it
             GetCursorPos(out POINT pt);
+            _dummyWindow.Left = pt.X;
+            _dummyWindow.Top = pt.Y;
+            _dummyWindow.Show();
 
-            // Position the dummy window near the mouse
-            if (_dummyWindow != null)
-            {
-                _dummyWindow.Left = pt.X;
-                _dummyWindow.Top = pt.Y;
-                _dummyWindow.Show();
+            menu.PlacementTarget = _dummyWindow;
+            menu.Placement = PlacementMode.AbsolutePoint;
+            menu.HorizontalOffset = pt.X;
+            menu.VerticalOffset = pt.Y;
+            menu.Closed += (_, _) => _dummyWindow?.Hide();
 
-                // Open the ContextMenu hosted on the dummy window
-                menu.PlacementTarget = _dummyWindow;
-                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint;
-                menu.HorizontalOffset = pt.X;
-                menu.VerticalOffset = pt.Y;
+            // Foreground the dummy window so the menu dismisses when the user clicks away
+            SetForegroundWindow(new WindowInteropHelper(_dummyWindow).Handle);
 
-                // When the menu closes, hide the dummy window
-                menu.Closed += (s, e) => _dummyWindow.Hide();
-
-                // Set foreground window to the dummy window so focus transfers properly (dismiss on click away)
-                var helper = new WindowInteropHelper(_dummyWindow);
-                SetForegroundWindow(helper.Handle);
-
-                menu.IsOpen = true;
-            }
+            menu.IsOpen = true;
         }
 
-        private void OpenUrl(string url)
+        private static void OpenUrl(string url)
         {
             try
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = url,
-                    UseShellExecute = true
-                });
+                Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
             }
             catch { /* Ignore url launch failure */ }
         }
 
         private void UpdateThemeBrushes()
         {
+            // Menu colours follow the *apps* theme setting (the tray icon follows the *system* theme).
             bool isLightTheme = true;
             try
             {
                 using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-                if (key != null)
+                if (key?.GetValue("AppsUseLightTheme") is int i)
                 {
-                    object? val = key.GetValue("AppsUseLightTheme");
-                    if (val is int i)
-                    {
-                        isLightTheme = i == 1;
-                    }
+                    isLightTheme = i == 1;
                 }
             }
             catch
@@ -443,182 +407,138 @@ namespace Uptime
                 // Fallback to light theme if registry read fails
             }
 
+            static System.Windows.Media.SolidColorBrush Rgb(byte r, byte g, byte b) =>
+                new(System.Windows.Media.Color.FromRgb(r, g, b));
+
             if (isLightTheme)
             {
-                Resources["MenuBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF3));
-                Resources["MenuBorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xD0, 0xD0, 0xD0));
-                Resources["MenuForegroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x00, 0x00));
-                Resources["MenuHoverBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE5, 0xE5, 0xE5));
-                Resources["MenuCheckBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD4));
+                Resources["MenuBackgroundBrush"] = Rgb(0xF3, 0xF3, 0xF3);
+                Resources["MenuBorderBrush"] = Rgb(0xD0, 0xD0, 0xD0);
+                Resources["MenuForegroundBrush"] = Rgb(0x00, 0x00, 0x00);
+                Resources["MenuHoverBrush"] = Rgb(0xE5, 0xE5, 0xE5);
+                Resources["MenuCheckBrush"] = Rgb(0x00, 0x78, 0xD4);
             }
             else
             {
-                Resources["MenuBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x20, 0x20, 0x20));
-                Resources["MenuBorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x40, 0x40, 0x40));
-                Resources["MenuForegroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0xFF, 0xFF));
+                Resources["MenuBackgroundBrush"] = Rgb(0x20, 0x20, 0x20);
+                Resources["MenuBorderBrush"] = Rgb(0x40, 0x40, 0x40);
+                Resources["MenuForegroundBrush"] = Rgb(0xFF, 0xFF, 0xFF);
                 Resources["MenuHoverBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-                Resources["MenuCheckBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x60, 0xCD, 0xFF));
+                Resources["MenuCheckBrush"] = Rgb(0x60, 0xCD, 0xFF);
             }
         }
 
-        private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string AppRegistryName = "Uptime";
-
-        private bool IsStartupEnabled()
+        // ── Startup registration ──
+        private static bool HasStartupEntry(RegistryKey root)
         {
-            // 1. Check HKCU Run key
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath);
-                if (key != null && (key.GetValue(AppRegistryName) != null || key.GetValue("UptimeTaskbarApp") != null))
-                {
-                    return true;
-                }
+                using RegistryKey? key = root.OpenSubKey(StartupRegistryPath);
+                return key != null && (key.GetValue(AppRegistryName) != null || key.GetValue(LegacyAppRegistryName) != null);
             }
-            catch { }
-
-            // 2. Check HKLM Run key (System-wide installation)
-            try
+            catch
             {
-                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(StartupRegistryPath);
-                if (key != null && (key.GetValue(AppRegistryName) != null || key.GetValue("UptimeTaskbarApp") != null))
-                {
-                    return true;
-                }
+                return false;
             }
-            catch { }
-
-            return false;
         }
 
-        private void SetStartup(bool enable)
+        private static bool IsStartupEnabled() => HasStartupEntry(Registry.CurrentUser) || HasStartupEntry(Registry.LocalMachine);
+
+        private static void SetStartup(bool enable)
         {
             try
             {
                 using RegistryKey? key = Registry.CurrentUser.OpenSubKey(StartupRegistryPath, true);
-                if (key != null)
+                if (key == null) return;
+
+                if (enable)
                 {
-                    if (enable)
-                    {
-                        string? appPath = Environment.ProcessPath;
-                        if (string.IsNullOrEmpty(appPath))
-                        {
-                            appPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
-                        }
-                        key.SetValue(AppRegistryName, $"\"{appPath}\"");
-                    }
-                    else
-                    {
-                        key.DeleteValue(AppRegistryName, false);
-                        key.DeleteValue("UptimeTaskbarApp", false);
-                    }
+                    string appPath = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
+                    key.SetValue(AppRegistryName, $"\"{appPath}\"");
+                    key.DeleteValue(LegacyAppRegistryName, false);
+                }
+                else
+                {
+                    key.DeleteValue(AppRegistryName, false);
+                    key.DeleteValue(LegacyAppRegistryName, false);
                 }
             }
             catch { }
         }
 
-        private double GetEffectiveMaxUptimeDays(out bool isPolicyEnforced)
+        // ── Threshold / policy ──
+        private static int? ReadDays(RegistryKey root, params string[] subKeys)
         {
+            foreach (string subKey in subKeys)
+            {
+                try
+                {
+                    using RegistryKey? key = root.OpenSubKey(subKey);
+                    object? val = key?.GetValue(MaxUptimeDaysValue);
+                    if (val is int i) return Math.Max(0, i);
+                    if (val is string s && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                        return Math.Max(0, parsed);
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves the restart threshold: GPO (HKLM policy) > machine setting (HKLM) > user setting (HKCU) > default.
+        /// A value of 0 disables the warning.
+        /// </summary>
+        private static int GetEffectiveMaxUptimeDays(out bool isPolicyEnforced)
+        {
+            int? machine = ReadDays(Registry.LocalMachine, PolicyRegistryPath)
+                           ?? ReadDays(Registry.LocalMachine, SettingsRegistryPath, LegacySettingsRegistryPath);
+            if (machine.HasValue)
+            {
+                isPolicyEnforced = true;
+                return machine.Value;
+            }
+
             isPolicyEnforced = false;
-
-            // 1. Check GPO / IT Admin Policy in HKLM\Software\Policies\Uptime
-            try
-            {
-                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Policies\Uptime");
-                if (key != null)
-                {
-                    object? val = key.GetValue("MaxUptimeDays");
-                    if (val is int daysInt)
-                    {
-                        isPolicyEnforced = true;
-                        return daysInt;
-                    }
-                }
-            }
-            catch { }
-
-            // 2. Check System-wide IT Admin setting in HKLM\Software\Uptime
-            try
-            {
-                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Uptime") ?? Registry.LocalMachine.OpenSubKey(@"Software\UptimeTaskbarApp");
-                if (key != null)
-                {
-                    object? val = key.GetValue("MaxUptimeDays");
-                    if (val is int daysInt)
-                    {
-                        isPolicyEnforced = true;
-                        return daysInt;
-                    }
-                }
-            }
-            catch { }
-
-            // 3. Check User setting in HKCU\Software\Uptime (default: 7 days)
-            try
-            {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Uptime") ?? Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
-                if (key != null)
-                {
-                    object? val = key.GetValue("MaxUptimeDays");
-                    if (val is int daysInt)
-                    {
-                        return daysInt;
-                    }
-                }
-            }
-            catch { }
-
-            return 7.0; // Default: 7 Days
+            return ReadDays(Registry.CurrentUser, SettingsRegistryPath, LegacySettingsRegistryPath) ?? DefaultThresholdDays;
         }
 
-        private void SetUserMaxUptimeDays(int days)
+        private static void SetUserMaxUptimeDays(int days)
         {
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\Uptime");
-                key?.SetValue("MaxUptimeDays", days, RegistryValueKind.DWord);
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath);
+                key?.SetValue(MaxUptimeDaysValue, days, RegistryValueKind.DWord);
             }
             catch { }
         }
 
-        private bool IsFastStartupEnabled()
+        private static bool IsFastStartupEnabled()
         {
             try
             {
                 using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager\Power");
-                if (key != null)
-                {
-                    object? val = key.GetValue("HiberbootEnabled");
-                    if (val is int i)
-                    {
-                        return i == 1;
-                    }
-                }
+                return key?.GetValue("HiberbootEnabled") is int i && i == 1;
             }
-            catch { }
-            return false;
+            catch
+            {
+                return false;
+            }
         }
 
-        private DateTime _lastNotificationTime = DateTime.MinValue;
-
+        // ── Notifications ──
         private DateTime GetLastNotificationTime()
         {
             if (_lastNotificationTime != DateTime.MinValue) return _lastNotificationTime;
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Uptime") ?? Registry.CurrentUser.OpenSubKey(@"Software\UptimeTaskbarApp");
-                if (key != null)
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(SettingsRegistryPath) ?? Registry.CurrentUser.OpenSubKey(LegacySettingsRegistryPath);
+                if (key?.GetValue("LastNotificationTicks") is long ticks)
                 {
-                    object? val = key.GetValue("LastNotificationTicks");
-                    if (val is long ticks)
-                    {
-                        _lastNotificationTime = new DateTime(ticks, DateTimeKind.Utc);
-                        return _lastNotificationTime;
-                    }
+                    _lastNotificationTime = new DateTime(ticks, DateTimeKind.Utc);
                 }
             }
             catch { }
-            return DateTime.MinValue;
+            return _lastNotificationTime;
         }
 
         private void SetLastNotificationTime(DateTime dt)
@@ -626,53 +546,27 @@ namespace Uptime
             _lastNotificationTime = dt;
             try
             {
-                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(@"Software\Uptime");
+                using RegistryKey? key = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath);
                 key?.SetValue("LastNotificationTicks", dt.Ticks, RegistryValueKind.QWord);
             }
             catch { }
         }
 
-        private void LogEventViewerWarning(double uptimeDays, double thresholdDays)
+        private static void LogEventViewerWarning(double uptimeDays, int thresholdDays)
         {
             try
             {
-                string source = "Uptime";
-                string logName = "Application";
+                const string source = "Uptime";
+                // The source is registered by the installer (needs admin). Creating it here only succeeds when elevated.
                 if (!EventLog.SourceExists(source))
                 {
-                    EventLog.CreateEventSource(source, logName);
+                    EventLog.CreateEventSource(source, "Application");
                 }
-                EventLog.WriteEntry(source, $"System uptime ({Math.Round(uptimeDays, 1)} days) has exceeded the configured restart threshold ({thresholdDays} days). A system restart is required to maintain optimal performance and security.", EventLogEntryType.Warning, 1001);
+                EventLog.WriteEntry(source,
+                    $"System uptime ({Math.Round(uptimeDays, 1).ToString(CultureInfo.InvariantCulture)} days) has exceeded the configured restart threshold ({thresholdDays} days). A system restart is required to maintain optimal performance and security.",
+                    EventLogEntryType.Warning, 1001);
             }
-            catch { /* Ignore event log creation failures if non-admin */ }
-        }
-
-        private void PromptAndRestartComputer()
-        {
-            var result = MessageBox.Show(
-                "Are you sure you want to restart your computer now?\n\nPlease save all open work before proceeding.",
-                "Confirm System Restart",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "shutdown.exe",
-                        Arguments = "/r /t 0",
-                        UseShellExecute = true,
-                        CreateNoWindow = true
-                    });
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Failed to initiate restart:\n\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
+            catch { /* Ignore event log failures if the source isn't registered and we're not admin */ }
         }
 
         private void ShowBalloonNotification(string title, string message)
@@ -684,25 +578,53 @@ namespace Uptime
                 _nid.szInfo = message;
                 _nid.dwInfoFlags = NIIF_WARNING;
                 Shell_NotifyIcon(NIM_MODIFY, ref _nid);
-
-                // Clear szInfo and szInfoTitle buffers so subsequent NIM_MODIFY calls for tooltip/icon do NOT re-trigger notification toasts
+            }
+            catch { }
+            finally
+            {
+                // Clear the buffers so later NIM_MODIFY calls for tooltip/icon do NOT re-trigger the toast
                 _nid.szInfoTitle = "";
                 _nid.szInfo = "";
             }
-            catch { }
         }
 
+        private static void PromptAndRestartComputer()
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to restart your computer now?\n\nPlease save all open work before proceeding.",
+                "Confirm System Restart",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "shutdown.exe",
+                    Arguments = "/r /t 0",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to initiate restart:\n\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ── Periodic update ──
         private void UpdateUptime()
         {
-            long tickCountMs = Environment.TickCount64;
-            TimeSpan uptime = TimeSpan.FromMilliseconds(tickCountMs);
+            TimeSpan uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
 
-            double thresholdDays = GetEffectiveMaxUptimeDays(out bool isPolicyEnforced);
+            int thresholdDays = GetEffectiveMaxUptimeDays(out bool isPolicyEnforced);
             _isPolicyEnforced = isPolicyEnforced;
             _effectiveThresholdDays = thresholdDays;
 
             bool showWarning = thresholdDays > 0 && uptime.TotalDays >= thresholdDays;
-            bool fastStartupActive = IsFastStartupEnabled();
 
             string daysStr = uptime.Days == 1 ? "day" : "days";
             string hoursStr = uptime.Hours == 1 ? "hour" : "hours";
@@ -712,16 +634,15 @@ namespace Uptime
             if (showWarning)
             {
                 tooltipText += " (Restart Required)";
-                if (fastStartupActive)
+                if (IsFastStartupEnabled())
                 {
                     tooltipText += "\nFast Startup active. Restart to reset uptime.";
                 }
 
-                DateTime lastNotif = GetLastNotificationTime();
-                if ((DateTime.UtcNow - lastNotif).TotalHours >= 24)
+                if ((DateTime.UtcNow - GetLastNotificationTime()).TotalHours >= 24)
                 {
                     SetLastNotificationTime(DateTime.UtcNow);
-                    ShowBalloonNotification("Restart Required", $"Your computer has been running for {uptime.Days} days. A restart is required to maintain optimal performance and security.");
+                    ShowBalloonNotification("Restart Required", $"Your computer has been running for {uptime.Days} {daysStr}. A restart is required to maintain optimal performance and security.");
                     LogEventViewerWarning(uptime.TotalDays, thresholdDays);
                 }
             }
@@ -737,39 +658,41 @@ namespace Uptime
             UpdateTrayIcon(showWarning);
         }
 
-        private bool IsSystemLightTheme()
+        // ── Icon rendering ──
+        private static bool IsSystemLightTheme()
         {
             try
             {
                 using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-                if (key != null)
-                {
-                    object? val = key.GetValue("SystemUsesLightTheme");
-                    if (val is int i)
-                    {
-                        return i == 1;
-                    }
-                }
+                return key?.GetValue("SystemUsesLightTheme") is int i && i == 1;
             }
             catch
             {
-                // Fallback to dark theme if registry read fails
+                return false; // Fallback to dark theme if registry read fails
             }
-            return false;
+        }
+
+        private static int GetTrayIconSize()
+        {
+            int size = GetSystemMetrics(SM_CXSMICON);
+            return size >= 16 ? size : 16;
         }
 
         private void UpdateTrayIcon(bool showWarning = false)
         {
             bool isLightTheme = IsSystemLightTheme();
-            if (_lastIsLightTheme == isLightTheme && _lastShowWarning == showWarning)
+            int iconSize = GetTrayIconSize();
+            if (_lastIsLightTheme == isLightTheme && _lastShowWarning == showWarning && _lastIconSize == iconSize)
             {
                 return;
             }
 
             _lastIsLightTheme = isLightTheme;
             _lastShowWarning = showWarning;
+            _lastIconSize = iconSize;
+
             IntPtr oldIcon = _iconHandle;
-            _iconHandle = CreateClockIcon(isLightTheme, showWarning);
+            _iconHandle = CreateClockIcon(isLightTheme, showWarning, iconSize);
 
             _nid.hIcon = _iconHandle;
             _nid.uFlags = NIF_ICON;
@@ -781,138 +704,114 @@ namespace Uptime
             }
         }
 
-        private IntPtr CreateClockIcon(bool isLightTheme, bool showWarning = false)
+        /// <summary>
+        /// Draws the tray icon in a 32x32 design space, scaled to the shell's small-icon size so it stays crisp at any DPI.
+        /// The caller owns the returned HICON and must release it with DestroyIcon.
+        /// </summary>
+        private static IntPtr CreateClockIcon(bool isLightTheme, bool showWarning, int size)
         {
-            Bitmap bmp = new Bitmap(32, 32);
+            using var bmp = new Bitmap(size, size);
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.ScaleTransform(size / 32f, size / 32f);
 
-                // 1. Draw solid Fluent Blue circle (#0078D4)
-                Color circleColor = Color.FromArgb(255, 0, 120, 212);
-                using (SolidBrush fillBrush = new SolidBrush(circleColor))
+                // 1. Solid Fluent Blue circle (#0078D4)
+                using (var fillBrush = new SolidBrush(Color.FromArgb(255, 0, 120, 212)))
                 {
                     g.FillEllipse(fillBrush, 2f, 2f, 28f, 28f);
                 }
 
-                // 2. Draw white clock hands (9 o'clock and 12 o'clock)
-                using (Pen handPen = new Pen(Color.White, 2.5f))
+                // 2. White clock hands (9 o'clock hour hand, 12 o'clock minute hand) around the centre (16, 16)
+                using (var handPen = new Pen(Color.White, 2.5f))
                 {
                     handPen.StartCap = LineCap.Round;
                     handPen.EndCap = LineCap.Round;
                     handPen.LineJoin = LineJoin.Round;
 
-                    // Center is (16, 16)
-                    // Hour hand points left to (8.5, 16)
-                    // Minute hand points up to (16, 8.5)
                     g.DrawLine(handPen, 16f, 16f, 8.5f, 16f);
                     g.DrawLine(handPen, 16f, 16f, 16f, 8.5f);
                 }
 
-                // If uptime exceeds threshold, draw Fluent-style warning badge in bottom-right corner
+                // If uptime exceeds the threshold, draw a Fluent-style warning badge in the bottom-right corner
                 if (showWarning)
                 {
-                    // Triangle vertices: top=(23, 14), bottom-left=(14, 30), bottom-right=(31, 30)
-                    PointF p1 = new PointF(23f, 14f);
-                    PointF p2 = new PointF(14f, 30f);
-                    PointF p3 = new PointF(31f, 30f);
-                    PointF[] triangle = { p1, p2, p3 };
+                    PointF[] triangle = { new(23f, 14f), new(14f, 30f), new(31f, 30f) };
+                    PointF[] borderTriangle = { new(23f, 12f), new(12f, 31.5f), new(32f, 31.5f) };
 
-                    // 1. Draw a dark cutout/border polygon slightly larger to separate badge from app icon
-                    PointF bp1 = new PointF(23f, 12f);
-                    PointF bp2 = new PointF(12f, 31.5f);
-                    PointF bp3 = new PointF(32f, 31.5f);
-                    PointF[] borderTriangle = { bp1, bp2, bp3 };
-
+                    // Cut-out border separating the badge from the clock
                     Color bgCutout = isLightTheme ? Color.White : Color.FromArgb(255, 32, 32, 32);
-                    using (SolidBrush bgBrush = new SolidBrush(bgCutout))
+                    using (var bgBrush = new SolidBrush(bgCutout))
                     {
                         g.FillPolygon(bgBrush, borderTriangle);
                     }
 
-                    // 2. Fill amber/yellow warning badge
-                    Color amberColor = Color.FromArgb(255, 255, 185, 0); // Vibrant Fluent Amber (#FFB900)
-                    using (SolidBrush amberBrush = new SolidBrush(amberColor))
+                    // Amber badge (#FFB900) with a dark outline
+                    using (var amberBrush = new SolidBrush(Color.FromArgb(255, 255, 185, 0)))
                     {
                         g.FillPolygon(amberBrush, triangle);
                     }
-
-                    // 3. Draw dark border for badge definition
-                    using (Pen outlinePen = new Pen(Color.FromArgb(255, 40, 40, 40), 1f))
+                    using (var outlinePen = new Pen(Color.FromArgb(255, 40, 40, 40), 1f))
                     {
                         g.DrawPolygon(outlinePen, triangle);
                     }
 
-                    // 4. Draw black exclamation mark (!)
-                    using (Pen markPen = new Pen(Color.Black, 2f))
+                    // Exclamation mark
+                    using (var markPen = new Pen(Color.Black, 2f))
                     {
                         markPen.StartCap = LineCap.Round;
                         markPen.EndCap = LineCap.Round;
-                        // Exclamation vertical line
                         g.DrawLine(markPen, 22.5f, 18.5f, 22.5f, 23.5f);
                     }
-                    using (SolidBrush dotBrush = new SolidBrush(Color.Black))
-                    {
-                        // Exclamation dot
-                        g.FillEllipse(dotBrush, 21.5f, 25.5f, 2f, 2f);
-                    }
+                    g.FillEllipse(Brushes.Black, 21.5f, 25.5f, 2f, 2f);
                 }
             }
             return bmp.GetHicon();
         }
 
-        private string GetAppVersion()
+        private static string GetAppVersion()
         {
             try
             {
-                var assembly = typeof(App).Assembly;
-                var attr = Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute)) as System.Reflection.AssemblyInformationalVersionAttribute;
-                if (attr != null && !string.IsNullOrEmpty(attr.InformationalVersion))
+                string? ver = typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (!string.IsNullOrEmpty(ver))
                 {
-                    string ver = attr.InformationalVersion;
-                    int plusIdx = ver.IndexOf('+');
-                    if (plusIdx > 0) ver = ver.Substring(0, plusIdx);
-                    return ver;
+                    int plusIdx = ver.IndexOf('+'); // strip source-link build metadata
+                    return plusIdx > 0 ? ver[..plusIdx] : ver;
                 }
 
-                var fileAttr = Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyFileVersionAttribute)) as System.Reflection.AssemblyFileVersionAttribute;
-                if (fileAttr != null && !string.IsNullOrEmpty(fileAttr.Version))
-                {
-                    return fileAttr.Version;
-                }
-
-                var v = assembly.GetName().Version;
-                if (v != null)
-                {
-                    return $"{v.Major}.{v.Minor}.{v.Build}";
-                }
+                Version? v = typeof(App).Assembly.GetName().Version;
+                if (v != null) return $"{v.Major}.{v.Minor}.{v.Build}";
             }
             catch { }
 
-            return "1.0.1";
+            return "unknown";
         }
 
+        // ── Shutdown ──
         private void Cleanup()
         {
+            if (_cleanedUp) return;
+            _cleanedUp = true;
+
             _timer?.Stop();
             Shell_NotifyIcon(NIM_DELETE, ref _nid);
-            if (_loadedIcon != null)
-            {
-                _loadedIcon.Dispose();
-                _loadedIcon = null;
-            }
-            else if (_iconHandle != IntPtr.Zero)
+
+            if (_iconHandle != IntPtr.Zero)
             {
                 DestroyIcon(_iconHandle);
+                _iconHandle = IntPtr.Zero;
             }
-            if (_messageWindow != IntPtr.Zero) DestroyWindow(_messageWindow);
 
-            if (_dummyWindow != null)
+            if (_messageWindow != IntPtr.Zero)
             {
-                _dummyWindow.Close();
-                _dummyWindow = null;
+                DestroyWindow(_messageWindow);
+                _messageWindow = IntPtr.Zero;
             }
+
+            _dummyWindow?.Close();
+            _dummyWindow = null;
 
             if (_appMutex != null)
             {
