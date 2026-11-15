@@ -28,10 +28,16 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <!-- Publish the main app first when its output isn't there yet (e.g. a fresh clone), so
-       `dotnet publish UptimeInstaller` works on its own. CI publishes the app explicitly beforehand. -->
-  <Target Name="EnsureUptimeAppPublished" BeforeTargets="CoreCompile" Condition="!Exists('$(UptimeAppExe)')">
-    <Message Importance="high" Text="Uptime.exe not found - publishing $(UptimeAppProject) ($(RuntimeIdentifier))..." />
+  <!-- Sources of the main app: a change to any of these makes the embedded Uptime.exe stale. -->
+  <ItemGroup>
+    <UptimeAppSource Include="$(MSBuildThisFileDirectory)..\*.cs;$(MSBuildThisFileDirectory)..\*.xaml;$(MSBuildThisFileDirectory)..\*.csproj;$(MSBuildThisFileDirectory)..\app.manifest;$(MSBuildThisFileDirectory)..\Assets\**" />
+  </ItemGroup>
+
+  <!-- Publish the main app first when its output is missing (e.g. a fresh clone) or older than its sources, so
+       `dotnet publish UptimeInstaller` works on its own and never embeds a stale build. In CI the app is published
+       (and signed) beforehand, so the output is up to date and this target is skipped. -->
+  <Target Name="EnsureUptimeAppPublished" BeforeTargets="CoreCompile" Inputs="@(UptimeAppSource)" Outputs="$(UptimeAppExe)">
+    <Message Importance="high" Text="Uptime.exe missing or out of date - publishing $(UptimeAppProject) ($(RuntimeIdentifier))..." />
     <Exec Command="dotnet publish &quot;$(UptimeAppProject)&quot; -c Release -r $(RuntimeIdentifier)" />
   </Target>
 
