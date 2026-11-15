@@ -5,13 +5,11 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.1</Version>
+    <!-- Version, Company and Copyright come from Directory.Build.props -->
     <AssemblyName>Uptime</AssemblyName>
     <Product>Uptime</Product>
     <Title>Uptime</Title>
     <AssemblyTitle>Uptime</AssemblyTitle>
-    <Company>Sourajit Karmakar</Company>
-    <Copyright>Copyright (c) 2026 Sourajit Karmakar</Copyright>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <DefaultItemExcludes>$(DefaultItemExcludes);UptimeInstaller\**</DefaultItemExcludes>

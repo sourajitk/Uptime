@@ -44,15 +44,17 @@ jobs:
     - name: Resolve Version
       shell: pwsh
       run: |
-        $csprojVersion = ([xml](Get-Content UptimeTaskbarApp.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+        # Directory.Build.props is the single source of the version for the app and the installer
+        $propsVersion = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+        if (-not $propsVersion) { throw "<Version> not found in Directory.Build.props" }
         $refName = "${{ github.ref_name }}"
         if ("${{ github.ref_type }}" -eq "tag" -and $refName -match '^v?(\d+\.\d+\.\d+)') {
             $ver = $Matches[1]
-            if ($ver -ne $csprojVersion) {
-                Write-Host "::warning::Tag version $ver does not match <Version>$csprojVersion</Version> in UptimeTaskbarApp.csproj"
+            if ($ver -ne $propsVersion) {
+                throw "Tag $refName does not match <Version>$propsVersion</Version> in Directory.Build.props. Bump the version there before tagging."
             }
         } else {
-            $ver = $csprojVersion
+            $ver = $propsVersion
         }
         $name = "Uptime-v$ver-Setup-${{ matrix.rid }}.exe"
         Write-Host "Version $ver -> $name"

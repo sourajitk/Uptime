@@ -53,6 +53,8 @@ dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release -r win-x64
 
 The installer is written to `UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/`. Uptime and its installer require the **.NET 10 Desktop Runtime**.
 
+The version number for both the app and the installer is set in one place, [Directory.Build.props](Directory.Build.props). Bump it there before tagging a release (`vX.Y.Z`); CI fails the release if the tag and the file disagree.
+
 ## License
 
 This project is licensed under the [Apache-2.0 License](LICENSE).

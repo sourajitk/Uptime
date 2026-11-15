@@ -4,7 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
-    <Version>1.0.1</Version>
+    <!-- Version, Company and Copyright come from ..\Directory.Build.props -->
+    <Product>Uptime</Product>
+    <AssemblyTitle>Uptime Setup</AssemblyTitle>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>icon.ico</ApplicationIcon>
@@ -30,7 +32,7 @@
 
   <!-- Sources of the main app: a change to any of these makes the embedded Uptime.exe stale. -->
   <ItemGroup>
-    <UptimeAppSource Include="$(MSBuildThisFileDirectory)..\*.cs;$(MSBuildThisFileDirectory)..\*.xaml;$(MSBuildThisFileDirectory)..\*.csproj;$(MSBuildThisFileDirectory)..\app.manifest;$(MSBuildThisFileDirectory)..\Assets\**" />
+    <UptimeAppSource Include="$(MSBuildThisFileDirectory)..\*.cs;$(MSBuildThisFileDirectory)..\*.xaml;$(MSBuildThisFileDirectory)..\*.csproj;$(MSBuildThisFileDirectory)..\app.manifest;$(MSBuildThisFileDirectory)..\Directory.Build.props;$(MSBuildThisFileDirectory)..\Assets\**" />
   </ItemGroup>
 
   <!-- Publish the main app first when its output is missing (e.g. a fresh clone) or older than its sources, so
