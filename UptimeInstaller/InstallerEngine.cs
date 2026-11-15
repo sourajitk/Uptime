@@ -130,8 +130,9 @@ namespace UptimeInstaller
         /// <summary>Builds the switches needed to repeat the current operation in an elevated copy of the installer.</summary>
         public string BuildElevationArguments(string installPath, bool isAllUsers, bool enableStartup, bool uninstall, bool silent, bool launch)
         {
-            // A trailing backslash would escape the closing quote
-            string dir = installPath.Length > 3 ? installPath.TrimEnd('\\') : installPath;
+            // A trailing backslash would escape the closing quote, so double it ("C:\" -> "C:\\", which parses back to C:\)
+            string dir = installPath.TrimEnd('\\');
+            if (dir.Length < installPath.Length) dir += @"\\";
 
             var sb = new StringBuilder();
             if (silent) sb.Append("/silent ");
