@@ -9,7 +9,7 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 ## Features
 
 - **System Tray Display**: Displays live system uptime in days, hours, and minutes via tray tooltip.
-- **Restart Warning Badge**: Overlays a Fluent-style yellow warning badge when system uptime crosses a configured threshold (7, 14, 30 days or custom).
+- **Restart Warning Badge**: Overlays a Fluent-style yellow warning badge when system uptime crosses a threshold you pick from the tray menu (3, 7, 14, 30 days or never; default 7), or one enforced by IT policy.
 - **Fast Startup Awareness**: Detects Windows Fast Startup and informs users why shutting down doesn't reset uptime.
 - **Direct Computer Restart**: 1-click "Restart Computer..." context menu option with safety confirmation prompt.
 - **Windows Event Log Monitoring**: Writes Event Log Warning (Event ID 1001, Source `Uptime`) when threshold is reached for SIEM & RMM monitoring.
@@ -22,25 +22,35 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 Download the latest installer from the [Releases](https://github.com/sourajitk/Uptime/releases) page.
 
 ### Interactive GUI Installation
-Run `Uptime-v1.0.0-Setup-win-x64.exe` and follow the wizard to select per-user (`LocalAppData`) or system-wide (`Program Files`) installation.
+Run `Uptime-vX.Y.Z-Setup-win-x64.exe` (or `-win-arm64.exe`) and follow the wizard to select per-user (`LocalAppData`) or system-wide (`Program Files`) installation.
 
 ### Silent Enterprise Installation
 For mass deployment via IT administration software (Intune, SCCM, PDQ Deploy, GPO):
 
 - **System-Wide Silent Install (All Users):**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /allusers
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /allusers
   ```
 - **System-Wide Silent Uninstall:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /uninstall /allusers
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /uninstall /allusers
   ```
 - **Per-User Silent Install:**
   ```cmd
-  Uptime-v1.0.0-Setup-win-x64.exe /silent /currentuser
+  Uptime-vX.Y.Z-Setup-win-x64.exe /silent /currentuser
   ```
 
 For detailed corporate deployment flags, GPO ADMX templates, detection rules, and code signing guidance, refer to [ENTERPRISE.md](ENTERPRISE.md).
+
+## Building from source
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download). The installer embeds the published app, so one command builds both:
+
+```cmd
+dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release -r win-x64
+```
+
+The installer is written to `UptimeInstaller/bin/Release/net10.0-windows/win-x64/publish/`. Uptime and its installer require the **.NET 10 Desktop Runtime**.
 
 ## License
 
