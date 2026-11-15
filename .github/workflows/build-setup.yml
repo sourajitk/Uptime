@@ -2,74 +2,113 @@ name: Build, Package, and Release Setup
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
     tags:
       - 'v*'
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build:
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
         rid: [win-x64, win-arm64]
 
+    env:
+      # Code signing is optional: it only runs when the certificate secret is configured.
+      # (Secrets can't be read in a step's `if`, so they are surfaced here as job-level env.)
+      SIGNING_CERT_BASE64: ${{ secrets.SIGNING_CERT_BASE64 }}
+      SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+      APP_EXE: bin/Release/net10.0-windows/${{ matrix.rid }}/publish/Uptime.exe
+      PUBLISH_DIR: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish
+
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-version: '10.0.x'
 
+    - name: Resolve Version
+      shell: pwsh
+      run: |
+        $csprojVersion = ([xml](Get-Content UptimeTaskbarApp.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+        $refName = "${{ github.ref_name }}"
+        if ("${{ github.ref_type }}" -eq "tag" -and $refName -match '^v?(\d+\.\d+\.\d+)') {
+            $ver = $Matches[1]
+            if ($ver -ne $csprojVersion) {
+                Write-Host "::warning::Tag version $ver does not match <Version>$csprojVersion</Version> in UptimeTaskbarApp.csproj"
+            }
+        } else {
+            $ver = $csprojVersion
+        }
+        $name = "Uptime-v$ver-Setup-${{ matrix.rid }}.exe"
+        Write-Host "Version $ver -> $name"
+        "INSTALLER_NAME=$name" >> $env:GITHUB_ENV
+
+    - name: Locate signtool
+      if: env.SIGNING_CERT_BASE64 != ''
+      shell: pwsh
+      run: |
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName | Select-Object -Last 1
+        if (-not $signtool) { throw "signtool.exe not found on this runner" }
+        "SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+        [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+
     - name: Publish Application (Release)
       run: dotnet publish UptimeTaskbarApp.csproj -c Release -r ${{ matrix.rid }}
+
+    # The app is signed *before* it is embedded in the installer
+    - name: Sign Application
+      if: env.SIGNING_CERT_BASE64 != ''
+      shell: pwsh
+      run: |
+        & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 $env:APP_EXE
+        if ($LASTEXITCODE -ne 0) { throw "signtool failed for Uptime.exe" }
 
     - name: Publish Setup Installer (Release)
       run: dotnet publish UptimeInstaller/UptimeInstaller.csproj -c Release -r ${{ matrix.rid }}
 
     - name: Package Installer Executable
-      shell: powershell
+      shell: pwsh
       run: |
-        $refName = "${{ github.ref_name }}"
-        if ($refName -match '^v?(\d+\.\d+\.\d+)') {
-            $ver = "v" + $Matches[1]
-            $outputName = "Uptime-$ver-Setup-${{ matrix.rid }}.exe"
-        } else {
-            $outputName = "Uptime-v1.0.0-Setup-${{ matrix.rid }}.exe"
-        }
-        Write-Host "Packaging installer as $outputName"
-        Copy-Item -Path "UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/UptimeInstaller.exe" -Destination "UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/$outputName" -Force
-        echo "INSTALLER_NAME=$outputName" >> $env:GITHUB_ENV
+        Copy-Item "$env:PUBLISH_DIR/UptimeInstaller.exe" "$env:PUBLISH_DIR/$env:INSTALLER_NAME" -Force
+        Write-Host "Packaged $env:INSTALLER_NAME"
 
-    - name: Optional Code Signing
+    - name: Sign Installer
       if: env.SIGNING_CERT_BASE64 != ''
-      shell: powershell
-      env:
-        SIGNING_CERT_BASE64: ${{ secrets.SIGNING_CERT_BASE64 }}
-        SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+      shell: pwsh
       run: |
-        $certPath = "$env:TEMP\cert.pfx"
-        [System.Convert]::FromBase64String($env:SIGNING_CERT_BASE64) | Set-Content -Path $certPath -AsByteStream
-        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /f $certPath /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/$env:INSTALLER_NAME
-        Remove-Item -Path $certPath -Force
+        & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 "$env:PUBLISH_DIR/$env:INSTALLER_NAME"
+        if ($LASTEXITCODE -ne 0) { throw "signtool failed for the installer" }
+        Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
     - name: Upload Installer Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.INSTALLER_NAME }}
-        path: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/${{ env.INSTALLER_NAME }}
+        path: ${{ env.PUBLISH_DIR }}/${{ env.INSTALLER_NAME }}
+        if-no-files-found: error
 
     - name: Create and Publish GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
-        files: UptimeInstaller/bin/Release/net10.0-windows/${{ matrix.rid }}/publish/${{ env.INSTALLER_NAME }}
+        files: ${{ env.PUBLISH_DIR }}/${{ env.INSTALLER_NAME }}
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
