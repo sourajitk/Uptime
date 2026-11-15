@@ -11,7 +11,8 @@ Uptime is a lightweight and theme-adaptive Windows utility that displays your sy
 - **System Tray Display**: Displays live system uptime in days, hours, and minutes via tray tooltip.
 - **Restart Warning Badge**: Overlays a Fluent-style yellow warning badge when system uptime crosses a threshold you pick from the tray menu (3, 7, 14, 30 days or never; default 7), or one enforced by IT policy.
 - **Fast Startup Awareness**: Detects Windows Fast Startup and informs users why shutting down doesn't reset uptime.
-- **Direct Computer Restart**: 1-click "Restart Computer..." context menu option with safety confirmation prompt.
+- **Native Windows 11 Tray Menu**: The right-click menu is a real Windows menu, so it matches the system's look, light/dark mode, display scaling, keyboard navigation and screen readers.
+- **Direct Computer Restart**: 1-click "Restart computer…" menu option with safety confirmation prompt.
 - **Windows Event Log Monitoring**: Writes Event Log Warning (Event ID 1001, Source `Uptime`) when threshold is reached for SIEM & RMM monitoring.
 - **RMM Command-Line Status Query**: Executing `Uptime.exe /status` returns JSON machine status to stdout for automated IT audit scripts.
 - **Explorer Restart Recovery**: Automatically re-registers tray icon if Windows Explorer restarts.

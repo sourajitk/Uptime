@@ -7,9 +7,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
@@ -63,6 +60,32 @@ namespace Uptime
 
         [DllImport("shcore.dll")]
         private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CreatePopupMenu();
+
+        [DllImport("user32.dll")]
+        private static extern bool DestroyMenu(IntPtr hMenu);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool AppendMenu(IntPtr hMenu, uint uFlags, UIntPtr uIDNewItem, string? lpNewItem);
+
+        [DllImport("user32.dll")]
+        private static extern bool CheckMenuRadioItem(IntPtr hMenu, uint first, uint last, uint check, uint flags);
+
+        [DllImport("user32.dll")]
+        private static extern uint TrackPopupMenuEx(IntPtr hMenu, uint uFlags, int x, int y, IntPtr hWnd, IntPtr lptpm);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        // Undocumented but stable since Windows 10 1903 (used by Explorer, Notepad++, PowerToys, ...):
+        // lets classic Win32 popup menus render in dark mode.
+        [DllImport("uxtheme.dll", EntryPoint = "#135")]
+        private static extern int SetPreferredAppMode(int mode);
+
+        [DllImport("uxtheme.dll", EntryPoint = "#136")]
+        private static extern void FlushMenuThemes();
 
         [DllImport("kernel32.dll")]
         private static extern bool AttachConsole(int dwProcessId);
@@ -134,14 +157,39 @@ namespace Uptime
 
         private const int ATTACH_PARENT_PROCESS = -1;
         private const int SM_CXSMICON = 49;
+        private const int SM_MENUDROPALIGNMENT = 40;
         private const uint MONITOR_DEFAULTTOPRIMARY = 1;
         private const int MDT_EFFECTIVE_DPI = 0;
 
+        private const uint WM_NULL = 0x0000;
         private const uint WM_APP = 0x8000;
         private const uint WM_TRAYICON = WM_APP + 1;
         private const uint WM_RBUTTONUP = 0x0205;
         private const uint WM_CONTEXTMENU = 0x007B;
         private const uint WM_SETTINGCHANGE = 0x001A;
+
+        private const uint MF_STRING = 0x0000;
+        private const uint MF_GRAYED = 0x0001;
+        private const uint MF_CHECKED = 0x0008;
+        private const uint MF_POPUP = 0x0010;
+        private const uint MF_SEPARATOR = 0x0800;
+        private const uint MF_BYCOMMAND = 0x0000;
+
+        private const uint TPM_LEFTALIGN = 0x0000;
+        private const uint TPM_RIGHTALIGN = 0x0008;
+        private const uint TPM_RIGHTBUTTON = 0x0002;
+        private const uint TPM_NONOTIFY = 0x0080;
+        private const uint TPM_RETURNCMD = 0x0100;
+
+        private const int PreferredAppModeForceDark = 2;
+        private const int PreferredAppModeForceLight = 3;
+
+        // Tray menu command IDs. Threshold choices are encoded as CmdThresholdBase + days (0 = never).
+        private const uint CmdStartAtLogin = 1;
+        private const uint CmdRestart = 2;
+        private const uint CmdViewSource = 3;
+        private const uint CmdExit = 4;
+        private const uint CmdThresholdBase = 1000;
 
         private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string AppRegistryName = "Uptime";
@@ -162,7 +210,7 @@ namespace Uptime
         private IntPtr _iconHandle;
         private DispatcherTimer? _timer;
         private WndProcDelegate? _wndProc; // prevent GC collection of delegate
-        private Window? _dummyWindow;
+        private bool _isMenuOpen;
         private static Mutex? _appMutex;
         private bool? _lastIsLightTheme;
         private int _lastIconSize;
@@ -194,21 +242,6 @@ namespace Uptime
             }
 
             base.OnStartup(e);
-
-            // Create a dummy hidden window for hosting the WPF ContextMenu
-            _dummyWindow = new Window
-            {
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = System.Windows.Media.Brushes.Transparent,
-                Width = 1,
-                Height = 1,
-                ShowInTaskbar = false,
-                Top = -100,
-                Left = -100
-            };
-            _dummyWindow.Show();
-            _dummyWindow.Hide(); // Create window handle but keep it invisible
 
             // Register window class
             _wndProc = WndProc;
@@ -307,127 +340,193 @@ namespace Uptime
 
         private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
-            if (msg == WM_TRAYICON)
+            // An exception escaping a native callback would terminate the process.
+            try
             {
-                // Low word of lParam = notification event (both legacy and version 4 behaviour).
-                uint eventId = (uint)(lParam.ToInt64() & 0xFFFF);
-
-                // Version 4 sends WM_CONTEXTMENU for right-click and keyboard; the legacy protocol only sends WM_RBUTTONUP.
-                // Reacting to just one of them avoids opening the menu twice.
-                uint contextEvent = _trayUsesVersion4 ? WM_CONTEXTMENU : WM_RBUTTONUP;
-                if (eventId == contextEvent)
+                if (msg == WM_TRAYICON)
                 {
-                    ShowContextMenu();
-                    return IntPtr.Zero;
+                    // Low word of lParam = notification event (both legacy and version 4 behaviour).
+                    uint eventId = (uint)(lParam.ToInt64() & 0xFFFF);
+
+                    // Version 4 sends WM_CONTEXTMENU for right-click and keyboard; the legacy protocol only sends WM_RBUTTONUP.
+                    // Reacting to just one of them avoids opening the menu twice.
+                    uint contextEvent = _trayUsesVersion4 ? WM_CONTEXTMENU : WM_RBUTTONUP;
+                    if (eventId == contextEvent)
+                    {
+                        POINT anchor;
+                        if (_trayUsesVersion4)
+                        {
+                            // Version 4 passes the anchor in wParam (the icon itself for keyboard activation), as signed 16-bit screen coordinates.
+                            long w = wParam.ToInt64();
+                            anchor = new POINT { X = (short)(w & 0xFFFF), Y = (short)((w >> 16) & 0xFFFF) };
+                        }
+                        else
+                        {
+                            GetCursorPos(out anchor);
+                        }
+
+                        ShowContextMenu(anchor);
+                        return IntPtr.Zero;
+                    }
+                }
+                else if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
+                {
+                    // Explorer restarted or the display scale changed: re-render the icon for the current DPI and re-register it.
+                    UpdateTrayIcon(_lastShowWarning, force: true);
+                    AddTrayIcon();
+                }
+                else if (msg == WM_SETTINGCHANGE)
+                {
+                    UpdateTrayIcon(_lastShowWarning);
                 }
             }
-            else if (_wmTaskbarCreated != 0 && msg == _wmTaskbarCreated)
-            {
-                // Explorer restarted or the display scale changed: re-render the icon for the current DPI and re-register it.
-                UpdateTrayIcon(_lastShowWarning, force: true);
-                AddTrayIcon();
-            }
-            else if (msg == WM_SETTINGCHANGE)
-            {
-                UpdateTrayIcon(_lastShowWarning);
-            }
+            catch { }
 
             return DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
-        private void ShowContextMenu()
+        /// <summary>
+        /// Shows the tray menu as a native Win32 popup menu, which Windows 11 renders with its own styling
+        /// (rounded corners, Fluent spacing, system font, per-monitor DPI, keyboard and screen-reader support).
+        /// </summary>
+        private void ShowContextMenu(POINT anchor)
         {
-            if (_dummyWindow == null) return;
+            if (_isMenuOpen) return;
 
-            UpdateThemeBrushes();
+            IntPtr menu = CreatePopupMenu();
+            if (menu == IntPtr.Zero) return;
 
-            var menu = new ContextMenu();
-
-            // ── Start at login ──
-            bool startupManagedSystemWide = IsStartupEnabledSystemWide();
-            var startItem = new MenuItem
+            _isMenuOpen = true;
+            try
             {
-                Header = startupManagedSystemWide ? "Start at Login (All Users)" : "Start at Login",
-                IsCheckable = true,
-                IsChecked = startupManagedSystemWide || IsStartupEnabledForUser(),
+                // ── Start at login ──
                 // A machine-wide (HKLM) entry can't be toggled from a standard user session.
-                IsEnabled = !startupManagedSystemWide
-            };
-            startItem.Click += (_, _) => SetStartup(startItem.IsChecked);
-            menu.Items.Add(startItem);
+                bool startupManagedSystemWide = IsStartupEnabledSystemWide();
+                bool startsAtLogin = startupManagedSystemWide || IsStartupEnabledForUser();
+                AppendMenu(menu, MF_STRING | (startsAtLogin ? MF_CHECKED : 0) | (startupManagedSystemWide ? MF_GRAYED : 0),
+                    (UIntPtr)CmdStartAtLogin, startupManagedSystemWide ? "&Start at login (all users)" : "&Start at login");
 
-            // ── Restart reminder threshold ──
-            menu.Items.Add(new Separator());
+                // ── Restart reminder (submenu with radio choices) ──
+                AppendMenu(menu, MF_POPUP, (UIntPtr)(ulong)BuildThresholdMenu(), "Restart &reminder");
+
+                AppendMenu(menu, MF_SEPARATOR, UIntPtr.Zero, null);
+                AppendMenu(menu, MF_STRING, (UIntPtr)CmdRestart, "Restart &computer…");
+
+                // ── About (submenu) ──
+                AppendMenu(menu, MF_SEPARATOR, UIntPtr.Zero, null);
+                IntPtr about = CreatePopupMenu();
+                AppendMenu(about, MF_STRING | MF_GRAYED, UIntPtr.Zero, $"Uptime {GetAppVersion()}");
+                AppendMenu(about, MF_STRING | MF_GRAYED, UIntPtr.Zero, GetCopyright());
+                AppendMenu(about, MF_SEPARATOR, UIntPtr.Zero, null);
+                AppendMenu(about, MF_STRING, (UIntPtr)CmdViewSource, "&View source on GitHub");
+                AppendMenu(menu, MF_POPUP, (UIntPtr)(ulong)about, "&About Uptime");
+
+                AppendMenu(menu, MF_STRING, (UIntPtr)CmdExit, "E&xit");
+
+                ApplyMenuTheme();
+
+                // Required so the menu closes when the user clicks elsewhere (the shell grants us foreground rights for this click).
+                SetForegroundWindow(_messageWindow);
+
+                uint flags = TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY
+                             | (GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 ? TPM_RIGHTALIGN : TPM_LEFTALIGN);
+                uint command = TrackPopupMenuEx(menu, flags, anchor.X, anchor.Y, _messageWindow, IntPtr.Zero);
+
+                // KB135788: forces a task switch so a second right-click doesn't immediately dismiss the next menu.
+                PostMessage(_messageWindow, WM_NULL, IntPtr.Zero, IntPtr.Zero);
+
+                // Run the command after the native menu loop has unwound (it may show a dialog or shut down the app).
+                if (command != 0)
+                {
+                    Dispatcher.BeginInvoke(() => ExecuteMenuCommand(command));
+                }
+            }
+            finally
+            {
+                DestroyMenu(menu); // also destroys the submenus
+                _isMenuOpen = false;
+            }
+        }
+
+        private IntPtr BuildThresholdMenu()
+        {
+            IntPtr sub = CreatePopupMenu();
+            uint itemFlags = _isPolicyEnforced ? MF_STRING | MF_GRAYED : MF_STRING;
+
             if (_isPolicyEnforced)
             {
-                menu.Items.Add(new MenuItem
-                {
-                    Header = _effectiveThresholdDays > 0
-                        ? $"Restart Reminder: {FormatDays(_effectiveThresholdDays)} (IT Policy)"
-                        : "Restart Reminder: Disabled (IT Policy)",
-                    IsEnabled = false
-                });
+                AppendMenu(sub, MF_STRING | MF_GRAYED, UIntPtr.Zero, "Managed by your organization");
+                AppendMenu(sub, MF_SEPARATOR, UIntPtr.Zero, null);
             }
-            else
+
+            var choices = new List<int>(ThresholdChoices);
+            if (_effectiveThresholdDays > 0 && !choices.Contains(_effectiveThresholdDays))
             {
-                menu.Items.Add(new MenuItem { Header = "Remind me to restart after", IsEnabled = false });
-
-                var choices = new List<int>(ThresholdChoices);
-                if (_effectiveThresholdDays > 0 && !choices.Contains(_effectiveThresholdDays))
-                {
-                    choices.Add(_effectiveThresholdDays); // preserve a custom value configured via registry
-                    choices.Sort();
-                }
-
-                foreach (int days in choices)
-                {
-                    int selected = days;
-                    var item = new MenuItem { Header = FormatDays(days), IsChecked = _effectiveThresholdDays == days };
-                    item.Click += (_, _) => ApplyUserThreshold(selected);
-                    menu.Items.Add(item);
-                }
-
-                var neverItem = new MenuItem { Header = "Never", IsChecked = _effectiveThresholdDays <= 0 };
-                neverItem.Click += (_, _) => ApplyUserThreshold(0);
-                menu.Items.Add(neverItem);
+                choices.Add(_effectiveThresholdDays); // keep a custom value configured via registry or policy visible
+                choices.Sort();
             }
 
-            // ── Restart ──
-            menu.Items.Add(new Separator());
-            var restartItem = new MenuItem { Header = "Restart Computer..." };
-            restartItem.Click += (_, _) => PromptAndRestartComputer();
-            menu.Items.Add(restartItem);
+            foreach (int days in choices)
+            {
+                AppendMenu(sub, itemFlags, (UIntPtr)ThresholdCommand(days), $"After {FormatDays(days)}");
+            }
+            AppendMenu(sub, MF_SEPARATOR, UIntPtr.Zero, null);
+            AppendMenu(sub, itemFlags, (UIntPtr)ThresholdCommand(0), "&Never");
 
-            // ── About ──
-            menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem { Header = $"Version {GetAppVersion()}", IsEnabled = false });
-            menu.Items.Add(new MenuItem { Header = "Copyright (c) 2026 Sourajit Karmakar", IsEnabled = false });
-            var sourceItem = new MenuItem { Header = "View the source code on GitHub" };
-            sourceItem.Click += (_, _) => OpenUrl(RepositoryUrl);
-            menu.Items.Add(sourceItem);
+            // Radio bullet on the active choice (a one-item range: the others start unchecked, and the
+            // function works on item positions, which don't follow command-ID order here).
+            uint active = ThresholdCommand(_effectiveThresholdDays);
+            CheckMenuRadioItem(sub, active, active, active, MF_BYCOMMAND);
 
-            // ── Exit ──
-            menu.Items.Add(new Separator());
-            var exitItem = new MenuItem { Header = "Exit" };
-            exitItem.Click += (_, _) => Dispatcher.BeginInvoke(() => Current.Shutdown());
-            menu.Items.Add(exitItem);
+            return sub;
+        }
 
-            // Position the dummy window at the mouse and host the menu on it
-            GetCursorPos(out POINT pt);
-            _dummyWindow.Left = pt.X;
-            _dummyWindow.Top = pt.Y;
-            _dummyWindow.Show();
+        private static uint ThresholdCommand(int days) => CmdThresholdBase + (uint)Math.Clamp(days, 0, 60000);
 
-            menu.PlacementTarget = _dummyWindow;
-            menu.Placement = PlacementMode.AbsolutePoint;
-            menu.HorizontalOffset = pt.X;
-            menu.VerticalOffset = pt.Y;
-            menu.Closed += (_, _) => _dummyWindow?.Hide();
+        private void ExecuteMenuCommand(uint command)
+        {
+            switch (command)
+            {
+                case CmdStartAtLogin:
+                    SetStartup(!IsStartupEnabledForUser());
+                    break;
+                case CmdRestart:
+                    PromptAndRestartComputer();
+                    break;
+                case CmdViewSource:
+                    OpenUrl(RepositoryUrl);
+                    break;
+                case CmdExit:
+                    Current.Shutdown();
+                    break;
+                case >= CmdThresholdBase when !_isPolicyEnforced:
+                    ApplyUserThreshold((int)(command - CmdThresholdBase));
+                    break;
+            }
+        }
 
-            // Foreground the dummy window so the menu dismisses when the user clicks away
-            SetForegroundWindow(new WindowInteropHelper(_dummyWindow).Handle);
+        /// <summary>Makes the native menu follow the *apps* light/dark setting (the tray icon follows the *system* setting).</summary>
+        private static void ApplyMenuTheme()
+        {
+            if (Environment.OSVersion.Version.Build < 18362) return; // ordinal 135 had a different signature before 1903
 
-            menu.IsOpen = true;
+            bool isLightTheme = true;
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                if (key?.GetValue("AppsUseLightTheme") is int i)
+                {
+                    isLightTheme = i == 1;
+                }
+            }
+            catch { }
+
+            try
+            {
+                SetPreferredAppMode(isLightTheme ? PreferredAppModeForceLight : PreferredAppModeForceDark);
+                FlushMenuThemes();
+            }
+            catch { /* Entry point missing: the menu simply stays light */ }
         }
 
         private static string FormatDays(int days) => days == 1 ? "1 day" : $"{days} days";
@@ -445,44 +544,6 @@ namespace Uptime
                 Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
             }
             catch { /* Ignore url launch failure */ }
-        }
-
-        private void UpdateThemeBrushes()
-        {
-            // Menu colours follow the *apps* theme setting (the tray icon follows the *system* theme).
-            bool isLightTheme = true;
-            try
-            {
-                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-                if (key?.GetValue("AppsUseLightTheme") is int i)
-                {
-                    isLightTheme = i == 1;
-                }
-            }
-            catch
-            {
-                // Fallback to light theme if registry read fails
-            }
-
-            static System.Windows.Media.SolidColorBrush Rgb(byte r, byte g, byte b) =>
-                new(System.Windows.Media.Color.FromRgb(r, g, b));
-
-            if (isLightTheme)
-            {
-                Resources["MenuBackgroundBrush"] = Rgb(0xF3, 0xF3, 0xF3);
-                Resources["MenuBorderBrush"] = Rgb(0xD0, 0xD0, 0xD0);
-                Resources["MenuForegroundBrush"] = Rgb(0x00, 0x00, 0x00);
-                Resources["MenuHoverBrush"] = Rgb(0xE5, 0xE5, 0xE5);
-                Resources["MenuCheckBrush"] = Rgb(0x00, 0x78, 0xD4);
-            }
-            else
-            {
-                Resources["MenuBackgroundBrush"] = Rgb(0x20, 0x20, 0x20);
-                Resources["MenuBorderBrush"] = Rgb(0x40, 0x40, 0x40);
-                Resources["MenuForegroundBrush"] = Rgb(0xFF, 0xFF, 0xFF);
-                Resources["MenuHoverBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-                Resources["MenuCheckBrush"] = Rgb(0x60, 0xCD, 0xFF);
-            }
         }
 
         // ── Startup registration ──
@@ -862,6 +923,12 @@ namespace Uptime
             return "unknown";
         }
 
+        private static string GetCopyright()
+        {
+            string? text = typeof(App).Assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright;
+            return string.IsNullOrWhiteSpace(text) ? "Sourajit Karmakar" : text.Replace("Copyright (c)", "©");
+        }
+
         // ── Shutdown ──
         private void Cleanup()
         {
@@ -882,9 +949,6 @@ namespace Uptime
                 DestroyWindow(_messageWindow);
                 _messageWindow = IntPtr.Zero;
             }
-
-            _dummyWindow?.Close();
-            _dummyWindow = null;
 
             if (_appMutex != null)
             {

@@ -33,7 +33,7 @@ IT Administrators can enforce restart recommendation thresholds across domain en
 | **Max Uptime Threshold (System)** | `HKEY_LOCAL_MACHINE\Software\Uptime` | `MaxUptimeDays` | `DWORD` | Fallback machine policy. |
 | **User Threshold Preference** | `HKEY_CURRENT_USER\Software\Uptime` | `MaxUptimeDays` | `DWORD` | End-user threshold preference (default `7`). |
 
-When an IT policy is configured in `HKLM`, the system tray menu displays `Restart Reminder: X days (IT Policy)` and locks user modification. Without a policy, users choose 3, 7, 14, 30 days or Never from the tray menu (stored in `HKCU`).
+When an IT policy is configured in `HKLM`, the tray menu's **Restart reminder** submenu shows `Managed by your organization` with the enforced value selected and the choices locked. Without a policy, users choose 3, 7, 14, 30 days or Never from that submenu (stored in `HKCU`).
 
 ### ADMX Administrative Templates
 Group Policy templates are provided in the `policy/` directory:
