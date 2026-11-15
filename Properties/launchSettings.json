@@ -1,10 +1,11 @@
 {
   "profiles": {
-    "Uptime (Package)": {
-      "commandName": "MsixPackage"
-    },
-    "Uptime (Unpackaged)": {
+    "Uptime": {
       "commandName": "Project"
+    },
+    "Uptime (status)": {
+      "commandName": "Project",
+      "commandLineArgs": "/status"
     }
   }
 }
