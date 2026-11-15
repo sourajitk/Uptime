@@ -1,11 +1,4 @@
-using System;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
@@ -14,9 +7,10 @@ namespace UptimeInstaller
 {
     public partial class MainWindow : Window
     {
-        private int _currentPage = 0;
-        private bool _isUpgradeFlow = false;
-        private string _existingInstallPath = "";
+        private const int StepWelcome = 0, StepLicense = 1, StepFolder = 2, StepInstalling = 3, StepCompleted = 4;
+
+        private int _currentPage = StepWelcome;
+        private bool _isUpgradeFlow;
         private readonly InstallerEngine _engine;
 
         public MainWindow() : this(new InstallerEngine())
@@ -28,15 +22,9 @@ namespace UptimeInstaller
             _engine = engine;
             InitializeComponent();
 
-            if (_engine.IsAllUsers)
-            {
-                if (RadioAllUsers != null) RadioAllUsers.IsChecked = true;
-            }
-            else
-            {
-                if (RadioCurrentUser != null) RadioCurrentUser.IsChecked = true;
-            }
-
+            RadioAllUsers.IsChecked = _engine.IsAllUsers;
+            RadioCurrentUser.IsChecked = !_engine.IsAllUsers;
+            ChkStartup.IsChecked = _engine.EnableStartup;
             TxtInstallPath.Text = _engine.GetTargetInstallPath();
 
             DetectExistingInstallation();
@@ -48,11 +36,12 @@ namespace UptimeInstaller
 
             UpdateWizardLayout();
 
-            if (_currentPage == 3)
+            // Entered via the elevated relaunch: run straight away
+            if (_currentPage == StepInstalling)
             {
                 if (_engine.IsUninstall)
                 {
-                    StartUninstallation(_engine.GetTargetInstallPath(), _engine.IsAllUsers);
+                    StartUninstallation(TxtInstallPath.Text.Trim(), RadioAllUsers.IsChecked == true);
                 }
                 else
                 {
@@ -71,112 +60,51 @@ namespace UptimeInstaller
 
         private void DetectExistingInstallation()
         {
-            try
+            ExistingInstall? existing = _engine.DetectExistingInstallation();
+            if (existing == null) return;
+
+            _isUpgradeFlow = true;
+
+            // Keep scope and settings of the existing install so an upgrade never silently changes them
+            if (existing.IsAllUsers) RadioAllUsers.IsChecked = true; else RadioCurrentUser.IsChecked = true;
+            _engine.IsAllUsers = existing.IsAllUsers;
+
+            if (string.IsNullOrWhiteSpace(_engine.CustomInstallPath))
             {
-                string? detectedPath = null;
-
-                // 1. Check HKCU startup run registry key
-                using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
-                {
-                    if (key != null)
-                    {
-                        string? val = (key.GetValue("Uptime") ?? key.GetValue("UptimeTaskbarApp")) as string;
-                        if (!string.IsNullOrEmpty(val))
-                        {
-                            string cleanPath = val.Replace("\"", "").Trim();
-                            if (File.Exists(cleanPath))
-                            {
-                                detectedPath = Path.GetDirectoryName(cleanPath);
-                            }
-                        }
-                    }
-                }
-
-                // 2. Check HKLM startup run registry key
-                if (string.IsNullOrEmpty(detectedPath))
-                {
-                    using (RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
-                    {
-                        if (key != null)
-                        {
-                            string? val = (key.GetValue("Uptime") ?? key.GetValue("UptimeTaskbarApp")) as string;
-                            if (!string.IsNullOrEmpty(val))
-                            {
-                                string cleanPath = val.Replace("\"", "").Trim();
-                                if (File.Exists(cleanPath))
-                                {
-                                    detectedPath = Path.GetDirectoryName(cleanPath);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. Fall back to checking default install paths
-                if (string.IsNullOrEmpty(detectedPath))
-                {
-                    string currentUserExe1 = Path.Combine(_engine.DefaultCurrentUserPath, "Uptime.exe");
-                    string currentUserExe2 = Path.Combine(_engine.DefaultCurrentUserPath, "UptimeTaskbarApp.exe");
-                    string allUsersExe1 = Path.Combine(_engine.DefaultAllUsersPath, "Uptime.exe");
-                    string allUsersExe2 = Path.Combine(_engine.DefaultAllUsersPath, "UptimeTaskbarApp.exe");
-
-                    if (File.Exists(currentUserExe1) || File.Exists(currentUserExe2))
-                    {
-                        detectedPath = _engine.DefaultCurrentUserPath;
-                    }
-                    else if (File.Exists(allUsersExe1) || File.Exists(allUsersExe2))
-                    {
-                        detectedPath = _engine.DefaultAllUsersPath;
-                        _engine.IsAllUsers = true;
-                        if (RadioAllUsers != null) RadioAllUsers.IsChecked = true;
-                    }
-                }
-
-                // If found, initialize the upgrade flow
-                if (!string.IsNullOrEmpty(detectedPath) && Directory.Exists(detectedPath))
-                {
-                    _isUpgradeFlow = true;
-                    _existingInstallPath = detectedPath;
-                    TxtInstallPath.Text = detectedPath;
-
-                    WelcomeTitle.Text = "Upgrade Uptime";
-                    WelcomeDescription.Text = $"An existing installation of Uptime was detected at:\n{_existingInstallPath}\n\nClick Upgrade to update to the latest version.";
-                    WelcomeFooter.Text = "Click Upgrade to continue. If you want to uninstall, press on uninstall";
-                    BtnNext.Content = "Upgrade";
-                }
+                TxtInstallPath.Text = existing.Directory;
             }
-            catch
+            if (_engine.StartPage == 0)
             {
-                // Silence detection errors to avoid blocking the install
+                ChkStartup.IsChecked = existing.StartsAtLogin;
             }
+
+            WelcomeTitle.Text = "Upgrade Uptime";
+            WelcomeDescription.Text = $"An existing installation of Uptime was detected at:\n{existing.Directory}\n\nClick Upgrade to update to the latest version.";
+            WelcomeFooter.Text = "Click Upgrade to continue, or Uninstall to remove Uptime.";
+            BtnNext.Content = "Upgrade";
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ChangedButton == MouseButton.Left)
-            {
-                this.DragMove();
-            }
+            if (e.ChangedButton != MouseButton.Left) return;
+            try { DragMove(); } catch (InvalidOperationException) { /* button released before the drag started */ }
         }
 
-        private void Minimize_Click(object sender, RoutedEventArgs e)
-        {
-            this.WindowState = WindowState.Minimized;
-        }
+        private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
         private void Close_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentPage == 3) // PageInstalling
+            if (_currentPage == StepInstalling)
             {
                 MessageBox.Show("Please wait until the installation process is complete.", "Installation in Progress", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            this.Close();
+            Close();
         }
 
         private void ChkAcceptLicense_Changed(object sender, RoutedEventArgs e)
         {
-            if (_currentPage == 1) // PageLicense
+            if (_currentPage == StepLicense)
             {
                 BtnNext.IsEnabled = ChkAcceptLicense.IsChecked == true;
             }
@@ -184,98 +112,70 @@ namespace UptimeInstaller
 
         private void UpdateWizardLayout()
         {
-            // Toggle Page Panels Visibility
-            PageWelcome.Visibility = _currentPage == 0 ? Visibility.Visible : Visibility.Collapsed;
-            PageLicense.Visibility = _currentPage == 1 ? Visibility.Visible : Visibility.Collapsed;
-            PageFolder.Visibility = _currentPage == 2 ? Visibility.Visible : Visibility.Collapsed;
-            PageInstalling.Visibility = _currentPage == 3 ? Visibility.Visible : Visibility.Collapsed;
-            PageCompleted.Visibility = _currentPage == 4 ? Visibility.Visible : Visibility.Collapsed;
+            PageWelcome.Visibility = _currentPage == StepWelcome ? Visibility.Visible : Visibility.Collapsed;
+            PageLicense.Visibility = _currentPage == StepLicense ? Visibility.Visible : Visibility.Collapsed;
+            PageFolder.Visibility = _currentPage == StepFolder ? Visibility.Visible : Visibility.Collapsed;
+            PageInstalling.Visibility = _currentPage == StepInstalling ? Visibility.Visible : Visibility.Collapsed;
+            PageCompleted.Visibility = _currentPage == StepCompleted ? Visibility.Visible : Visibility.Collapsed;
 
-            // Toggle Navigation Buttons States and Visibility
-            if (_currentPage == 0) // Welcome
-            {
-                BtnBack.Visibility = Visibility.Collapsed;
-                BtnCancel.Visibility = Visibility.Visible;
-                BtnNext.Visibility = Visibility.Visible;
-                BtnNext.Content = _isUpgradeFlow ? "Upgrade" : "Next";
-                BtnNext.IsEnabled = true;
-            }
-            else if (_currentPage == 1) // License
-            {
-                BtnBack.Visibility = Visibility.Visible;
-                BtnCancel.Visibility = Visibility.Visible;
-                BtnNext.Visibility = Visibility.Visible;
-                BtnNext.Content = "Next";
-                BtnNext.IsEnabled = ChkAcceptLicense.IsChecked == true;
-            }
-            else if (_currentPage == 2) // Folder Select
-            {
-                BtnBack.Visibility = Visibility.Visible;
-                BtnCancel.Visibility = Visibility.Visible;
-                BtnNext.Visibility = Visibility.Visible;
-                BtnNext.Content = "Install";
-                BtnNext.IsEnabled = true;
-            }
-            else if (_currentPage == 3) // Installing
-            {
-                BtnBack.Visibility = Visibility.Collapsed;
-                BtnCancel.Visibility = Visibility.Collapsed;
-                BtnNext.Visibility = Visibility.Collapsed;
-            }
-            else if (_currentPage == 4) // Completed
-            {
-                BtnBack.Visibility = Visibility.Collapsed;
-                BtnCancel.Visibility = Visibility.Collapsed;
-                BtnNext.Visibility = Visibility.Visible;
-                BtnNext.Content = "Finish";
-                BtnNext.IsEnabled = true;
-            }
+            bool navigable = _currentPage != StepInstalling && _currentPage != StepCompleted;
+            BtnBack.Visibility = navigable && _currentPage > StepWelcome ? Visibility.Visible : Visibility.Collapsed;
+            BtnCancel.Visibility = navigable ? Visibility.Visible : Visibility.Collapsed;
+            BtnNext.Visibility = _currentPage == StepInstalling ? Visibility.Collapsed : Visibility.Visible;
+            BtnUninstall.Visibility = _currentPage == StepWelcome && _isUpgradeFlow ? Visibility.Visible : Visibility.Collapsed;
 
-            // Toggle BtnUninstall visibility (only visible on Welcome page in upgrade flow)
-            if (BtnUninstall != null)
+            switch (_currentPage)
             {
-                BtnUninstall.Visibility = (_currentPage == 0 && _isUpgradeFlow) ? Visibility.Visible : Visibility.Collapsed;
+                case StepWelcome:
+                    BtnNext.Content = _isUpgradeFlow ? "Upgrade" : "Next";
+                    BtnNext.IsEnabled = true;
+                    break;
+                case StepLicense:
+                    BtnNext.Content = "Next";
+                    BtnNext.IsEnabled = ChkAcceptLicense.IsChecked == true;
+                    break;
+                case StepFolder:
+                    BtnNext.Content = "Install";
+                    BtnNext.IsEnabled = true;
+                    break;
+                case StepCompleted:
+                    BtnNext.Content = "Finish";
+                    BtnNext.IsEnabled = true;
+                    break;
             }
+        }
+
+        private void GoToPage(int page)
+        {
+            _currentPage = page;
+            UpdateWizardLayout();
         }
 
         private void Next_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentPage == 0 && _isUpgradeFlow)
+            if ((_currentPage == StepWelcome && _isUpgradeFlow) || _currentPage == StepFolder)
             {
-                _currentPage = 3;
-                UpdateWizardLayout();
                 StartInstallation();
             }
-            else if (_currentPage == 2) // Moving from Folder -> Installing
-            {
-                _currentPage = 3;
-                UpdateWizardLayout();
-                StartInstallation();
-            }
-            else if (_currentPage == 4) // Finish
+            else if (_currentPage == StepCompleted)
             {
                 FinishInstallation();
             }
             else
             {
-                _currentPage++;
-                UpdateWizardLayout();
+                GoToPage(_currentPage + 1);
             }
         }
 
         private void Back_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentPage > 0)
+            if (_currentPage > StepWelcome)
             {
-                _currentPage--;
-                UpdateWizardLayout();
+                GoToPage(_currentPage - 1);
             }
         }
 
-        private void Cancel_Click(object sender, RoutedEventArgs e)
-        {
-            this.Close();
-        }
+        private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 
         private void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
@@ -290,103 +190,87 @@ namespace UptimeInstaller
             }
         }
 
-        private async void StartInstallation()
+        private string ResolveInstallPath()
         {
             string installPath = TxtInstallPath.Text.Trim();
+            return string.IsNullOrEmpty(installPath) ? _engine.GetTargetInstallPath() : installPath;
+        }
+
+        /// <summary>Runs the engine on a worker thread, reporting progress to the wizard. Returns the error, if any.</summary>
+        private async Task<Exception?> RunWithProgressAsync(Action<Action<string, int>> work)
+        {
+            InstallProgressBar.Value = 0;
+
+            void Report(string status, int percent)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    TxtStatus.Text = status;
+                    InstallProgressBar.Value = percent;
+                });
+                Thread.Sleep(200); // brief pacing so each step is readable
+            }
+
+            try
+            {
+                await Task.Run(() => work(Report));
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+
+        private async void StartInstallation()
+        {
+            string installPath = ResolveInstallPath();
             bool enableStartup = ChkStartup.IsChecked == true;
             bool isAllUsers = RadioAllUsers.IsChecked == true;
 
-            if (string.IsNullOrEmpty(installPath))
+            try
             {
-                installPath = _engine.GetTargetInstallPath();
+                installPath = Path.GetFullPath(installPath);
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("The installation folder is not a valid path.", "Invalid Folder", MessageBoxButton.OK, MessageBoxImage.Warning);
+                GoToPage(StepFolder);
+                return;
             }
 
-            if ((isAllUsers || InstallerEngine.IsSystemDirectory(installPath)) && !InstallerEngine.IsAdministrator())
+            if (_engine.NeedsElevation(installPath, isAllUsers))
             {
-                string args = $"/page=3 /dir=\"{installPath}\" {(isAllUsers ? "/allusers" : "/currentuser")} /launch";
-                if (InstallerEngine.ElevateSelf(args))
+                string args = _engine.BuildElevationArguments(installPath, isAllUsers, enableStartup, uninstall: false, silent: false, launch: false);
+                if (InstallerEngine.RunElevated(args, wait: false) != null)
                 {
                     Application.Current.Shutdown();
-                    return;
                 }
                 else
                 {
                     MessageBox.Show("Administrator privileges are required for system-wide installation to Program Files.",
                         "Elevation Required", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    _currentPage = 2; // Return to selection
-                    UpdateWizardLayout();
-                    return;
+                    GoToPage(StepFolder);
                 }
+                return;
             }
 
-            if (InstallingTitle != null)
+            GoToPage(StepInstalling);
+            InstallingTitle.Text = _isUpgradeFlow ? "Upgrading Uptime..." : "Installing Uptime...";
+
+            Exception? error = await RunWithProgressAsync(report =>
+                _engine.PerformInstall(installPath, enableStartup, isAllUsers, launchApp: false, report));
+
+            if (error != null)
             {
-                InstallingTitle.Text = _isUpgradeFlow ? "Upgrading Uptime..." : "Installing Uptime...";
+                MessageBox.Show($"An error occurred during installation:\n\n{error.Message}",
+                    "Installation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                GoToPage(_isUpgradeFlow ? StepWelcome : StepFolder);
+                return;
             }
 
-            InstallProgressBar.Value = 0;
-
-            await Task.Run(async () =>
-            {
-                try
-                {
-                    UpdateStatus("Closing running instances...", 10);
-                    _engine.KillRunningInstances("UptimeTaskbarApp");
-                    _engine.KillRunningInstances("Uptime");
-                    await Task.Delay(500);
-
-                    UpdateStatus("Preparing target directory...", 30);
-                    if (Directory.Exists(installPath))
-                    {
-                        _engine.CleanDirectory(installPath);
-                    }
-                    else
-                    {
-                        Directory.CreateDirectory(installPath);
-                    }
-                    await Task.Delay(300);
-
-                    UpdateStatus("Extracting files...", 60);
-                    string targetExePath = Path.Combine(installPath, "Uptime.exe");
-                    _engine.ExtractEmbeddedApp(targetExePath);
-                    await Task.Delay(300);
-
-                    UpdateStatus("Creating shortcuts...", 80);
-                    _engine.CreateStartMenuShortcut(targetExePath, installPath, isAllUsers);
-
-                    UpdateStatus("Configuring startup settings...", 95);
-                    _engine.ConfigureStartup(targetExePath, enableStartup, isAllUsers);
-                    await Task.Delay(300);
-
-                    UpdateStatus("Finalizing...", 100);
-                    await Task.Delay(300);
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        _currentPage = 4;
-                        UpdateWizardLayout();
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        MessageBox.Show($"An error occurred during installation:\n\n{ex.Message}",
-                            "Installation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                        _currentPage = 2; // Return to selection
-                        UpdateWizardLayout();
-                    });
-                }
-            });
-        }
-
-        private void UpdateStatus(string statusText, double progressValue)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                TxtStatus.Text = statusText;
-                InstallProgressBar.Value = progressValue;
-            });
+            TxtInstallPath.Text = installPath;
+            GoToPage(StepCompleted);
         }
 
         private void Uninstall_Click(object sender, RoutedEventArgs e)
@@ -397,26 +281,25 @@ namespace UptimeInstaller
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
-            if (confirm != MessageBoxResult.Yes)
-            {
-                return;
-            }
+            if (confirm != MessageBoxResult.Yes) return;
 
-            string installPath = TxtInstallPath.Text.Trim();
+            string installPath = ResolveInstallPath();
             bool isAllUsers = RadioAllUsers.IsChecked == true;
-            if (string.IsNullOrEmpty(installPath))
-            {
-                installPath = _engine.GetTargetInstallPath();
-            }
+            bool enableStartup = ChkStartup.IsChecked == true;
 
-            if ((isAllUsers || InstallerEngine.IsSystemDirectory(installPath)) && !InstallerEngine.IsAdministrator())
+            if (_engine.NeedsElevation(installPath, isAllUsers))
             {
-                string args = $"/uninstall /page=3 /dir=\"{installPath}\" {(isAllUsers ? "/allusers" : "/currentuser")}";
-                if (InstallerEngine.ElevateSelf(args))
+                string args = _engine.BuildElevationArguments(installPath, isAllUsers, enableStartup, uninstall: true, silent: false, launch: false);
+                if (InstallerEngine.RunElevated(args, wait: false) != null)
                 {
                     Application.Current.Shutdown();
-                    return;
                 }
+                else
+                {
+                    MessageBox.Show("Administrator privileges are required to uninstall a system-wide installation.",
+                        "Elevation Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                return;
             }
 
             StartUninstallation(installPath, isAllUsers);
@@ -424,103 +307,33 @@ namespace UptimeInstaller
 
         private async void StartUninstallation(string installPath, bool isAllUsers)
         {
-            _currentPage = 3;
-            UpdateWizardLayout();
+            GoToPage(StepInstalling);
+            InstallingTitle.Text = "Uninstalling Uptime...";
 
-            if (InstallingTitle != null)
+            Exception? error = await RunWithProgressAsync(report => _engine.PerformUninstall(installPath, isAllUsers, report));
+
+            if (error != null)
             {
-                InstallingTitle.Text = "Uninstalling Uptime...";
+                MessageBox.Show($"An error occurred during uninstallation:\n\n{error.Message}",
+                    "Uninstallation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                GoToPage(StepWelcome);
+                return;
             }
 
-            InstallProgressBar.Value = 0;
-
-            await Task.Run(async () =>
-            {
-                try
-                {
-                    UpdateStatus("Closing running instances...", 20);
-                    _engine.KillRunningInstances("UptimeTaskbarApp");
-                    _engine.KillRunningInstances("Uptime");
-                    await Task.Delay(500);
-
-                    UpdateStatus("Removing startup configurations...", 40);
-                    _engine.ConfigureStartup("", false, isAllUsers);
-                    await Task.Delay(300);
-
-                    UpdateStatus("Removing shortcuts...", 60);
-                    _engine.RemoveStartMenuShortcut();
-                    await Task.Delay(300);
-
-                    UpdateStatus("Deleting files...", 80);
-                    if (Directory.Exists(installPath))
-                    {
-                        _engine.CleanDirectory(installPath);
-                        try
-                        {
-                            Directory.Delete(installPath, true);
-                        }
-                        catch { }
-                    }
-                    await Task.Delay(300);
-
-                    UpdateStatus("Finalizing...", 100);
-                    await Task.Delay(300);
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        CompletedTitle.Text = "Uninstallation Completed";
-                        CompletedDescription.Text = "Uptime has been successfully removed from your computer.";
-                        ChkLaunchOnFinish.IsChecked = false;
-                        ChkLaunchOnFinish.Visibility = Visibility.Collapsed;
-
-                        _currentPage = 4;
-                        UpdateWizardLayout();
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        MessageBox.Show($"An error occurred during uninstallation:\n\n{ex.Message}",
-                            "Uninstallation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                        _currentPage = 0;
-                        UpdateWizardLayout();
-                    });
-                }
-            });
+            CompletedTitle.Text = "Uninstallation Completed";
+            CompletedDescription.Text = "Uptime has been successfully removed from your computer.";
+            ChkLaunchOnFinish.IsChecked = false;
+            ChkLaunchOnFinish.Visibility = Visibility.Collapsed;
+            GoToPage(StepCompleted);
         }
 
         private void FinishInstallation()
         {
             if (ChkLaunchOnFinish.IsChecked == true)
             {
-                try
-                {
-                    string installPath = TxtInstallPath.Text.Trim();
-                    if (string.IsNullOrEmpty(installPath))
-                    {
-                        installPath = _engine.GetTargetInstallPath();
-                    }
-                    string exePath = Path.Combine(installPath, "Uptime.exe");
-                    if (!File.Exists(exePath))
-                    {
-                        exePath = Path.Combine(installPath, "UptimeTaskbarApp.exe");
-                    }
-
-                    if (File.Exists(exePath))
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = exePath,
-                            WorkingDirectory = installPath,
-                            UseShellExecute = true
-                        });
-                    }
-                }
-                catch { }
+                InstallerEngine.LaunchApplication(Path.Combine(ResolveInstallPath(), "Uptime.exe"));
             }
-
-            this.Close();
+            Close();
         }
     }
 }
