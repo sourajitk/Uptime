@@ -327,40 +327,73 @@ namespace Uptime
 
             var menu = new ContextMenu();
 
+            // ── Start at login ──
+            bool startupManagedSystemWide = IsStartupEnabledSystemWide();
             var startItem = new MenuItem
             {
-                Header = "Start at Login",
+                Header = startupManagedSystemWide ? "Start at Login (All Users)" : "Start at Login",
                 IsCheckable = true,
-                IsChecked = IsStartupEnabled()
+                IsChecked = startupManagedSystemWide || IsStartupEnabledForUser(),
+                // A machine-wide (HKLM) entry can't be toggled from a standard user session.
+                IsEnabled = !startupManagedSystemWide
             };
             startItem.Click += (_, _) => SetStartup(startItem.IsChecked);
+            menu.Items.Add(startItem);
 
-            var thresholdItem = new MenuItem
+            // ── Restart reminder threshold ──
+            menu.Items.Add(new Separator());
+            if (_isPolicyEnforced)
             {
-                Header = _isPolicyEnforced
-                    ? $"Restart Threshold ({_effectiveThresholdDays} Days - IT Policy)"
-                    : $"Restart Threshold ({(_effectiveThresholdDays == 0 ? "Disabled" : $"{_effectiveThresholdDays} Days")})",
-                IsEnabled = false
-            };
+                menu.Items.Add(new MenuItem
+                {
+                    Header = _effectiveThresholdDays > 0
+                        ? $"Restart Reminder: {FormatDays(_effectiveThresholdDays)} (IT Policy)"
+                        : "Restart Reminder: Disabled (IT Policy)",
+                    IsEnabled = false
+                });
+            }
+            else
+            {
+                menu.Items.Add(new MenuItem { Header = "Remind me to restart after", IsEnabled = false });
 
+                var choices = new List<int>(ThresholdChoices);
+                if (_effectiveThresholdDays > 0 && !choices.Contains(_effectiveThresholdDays))
+                {
+                    choices.Add(_effectiveThresholdDays); // preserve a custom value configured via registry
+                    choices.Sort();
+                }
+
+                foreach (int days in choices)
+                {
+                    int selected = days;
+                    var item = new MenuItem { Header = FormatDays(days), IsChecked = _effectiveThresholdDays == days };
+                    item.Click += (_, _) => ApplyUserThreshold(selected);
+                    menu.Items.Add(item);
+                }
+
+                var neverItem = new MenuItem { Header = "Never", IsChecked = _effectiveThresholdDays <= 0 };
+                neverItem.Click += (_, _) => ApplyUserThreshold(0);
+                menu.Items.Add(neverItem);
+            }
+
+            // ── Restart ──
+            menu.Items.Add(new Separator());
             var restartItem = new MenuItem { Header = "Restart Computer..." };
             restartItem.Click += (_, _) => PromptAndRestartComputer();
-
-            var sourceItem = new MenuItem { Header = "View the source code on GitHub" };
-            sourceItem.Click += (_, _) => OpenUrl(RepositoryUrl);
-
-            var exitItem = new MenuItem { Header = "Exit" };
-            exitItem.Click += (_, _) => Dispatcher.BeginInvoke(() => Current.Shutdown());
-
-            menu.Items.Add(startItem);
-            menu.Items.Add(thresholdItem);
-            menu.Items.Add(new Separator());
             menu.Items.Add(restartItem);
+
+            // ── About ──
             menu.Items.Add(new Separator());
             menu.Items.Add(new MenuItem { Header = $"Version {GetAppVersion()}", IsEnabled = false });
             menu.Items.Add(new MenuItem { Header = "Copyright (c) 2026 Sourajit Karmakar", IsEnabled = false });
+            var sourceItem = new MenuItem { Header = "View the source code on GitHub" };
+            sourceItem.Click += (_, _) => OpenUrl(RepositoryUrl);
             menu.Items.Add(sourceItem);
+
+            // ── Exit ──
             menu.Items.Add(new Separator());
+            var exitItem = new MenuItem { Header = "Exit" };
+            exitItem.Click += (_, _) => Dispatcher.BeginInvoke(() => Current.Shutdown());
             menu.Items.Add(exitItem);
 
             // Position the dummy window at the mouse and host the menu on it
@@ -379,6 +412,14 @@ namespace Uptime
             SetForegroundWindow(new WindowInteropHelper(_dummyWindow).Handle);
 
             menu.IsOpen = true;
+        }
+
+        private static string FormatDays(int days) => days == 1 ? "1 day" : $"{days} days";
+
+        private void ApplyUserThreshold(int days)
+        {
+            SetUserMaxUptimeDays(days);
+            UpdateUptime();
         }
 
         private static void OpenUrl(string url)
@@ -442,7 +483,9 @@ namespace Uptime
             }
         }
 
-        private static bool IsStartupEnabled() => HasStartupEntry(Registry.CurrentUser) || HasStartupEntry(Registry.LocalMachine);
+        private static bool IsStartupEnabledForUser() => HasStartupEntry(Registry.CurrentUser);
+
+        private static bool IsStartupEnabledSystemWide() => HasStartupEntry(Registry.LocalMachine);
 
         private static void SetStartup(bool enable)
         {
