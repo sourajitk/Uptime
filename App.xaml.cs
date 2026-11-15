@@ -33,7 +33,8 @@ namespace Uptime
         [DllImport("user32.dll")]
         private static extern bool DestroyWindow(IntPtr hWnd);
 
-        [DllImport("user32.dll")]
+        // Must be the W variant: the window class is registered as Unicode, and DefWindowProcA would mangle its text (title became "U").
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
