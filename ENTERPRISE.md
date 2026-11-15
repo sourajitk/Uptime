@@ -21,7 +21,7 @@ Uptime supports two installation scopes:
    - Apps & Features Entry: `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Uptime`
    - Requires administrative privileges during installation.
 
-Both scopes install two files: `Uptime.exe` and `Uninstall.exe` (a copy of the setup program, used by **Settings › Apps** to remove Uptime).
+Both scopes install two files: `Uptime.exe` and `Uninstall.exe` (a copy of the setup program, used by **Settings › Apps** to remove Uptime). The Run entry starts Uptime with `/autostart`, which keeps a duplicate launch at sign-in silent; launching Uptime by hand while it is already running shows a notification from the running copy instead.
 
 The Apps & Features entry records `DisplayVersion`, `InstallLocation`, `UninstallString` and `QuietUninstallString`, so management tools can uninstall Uptime without the original setup file.
 

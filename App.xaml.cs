@@ -79,6 +79,12 @@ namespace Uptime
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern bool ChangeWindowMessageFilterEx(IntPtr hWnd, uint msg, uint action, IntPtr pChangeFilterStruct);
+
         // Undocumented but stable since Windows 10 1903 (used by Explorer, Notepad++, PowerToys, ...):
         // lets classic Win32 popup menus render in dark mode.
         [DllImport("uxtheme.dll", EntryPoint = "#135")]
@@ -151,7 +157,9 @@ namespace Uptime
         private const uint NIF_TIP = 0x04;
         private const uint NIF_INFO = 0x10;
         private const uint NIF_SHOWTIP = 0x80;
+        private const uint NIIF_INFO = 0x01;
         private const uint NIIF_WARNING = 0x02;
+        private const uint MSGFLT_ALLOW = 1;
 
         private const uint NOTIFYICON_VERSION_4 = 4;
 
@@ -200,6 +208,12 @@ namespace Uptime
         private const string MaxUptimeDaysValue = "MaxUptimeDays";
         private const int DefaultThresholdDays = 7;
         private const string RepositoryUrl = "https://github.com/sourajitk/Uptime";
+        private const string TrayWindowClass = "UptimeTrayMsgWindow";
+        private const string AlreadyRunningMessageName = "Uptime.AlreadyRunning";
+
+        // Added to the Run entry: a duplicate launch at sign-in (e.g. both an HKCU and HKLM entry) exits quietly,
+        // while a launch by the user from Start tells the running copy to show where it is.
+        private const string AutostartArgument = "/autostart";
 
         // Preset restart-reminder choices offered in the tray menu (0 = never).
         private static readonly int[] ThresholdChoices = { 3, 7, 14, 30 };
@@ -215,6 +229,7 @@ namespace Uptime
         private bool? _lastIsLightTheme;
         private int _lastIconSize;
         private uint _wmTaskbarCreated;
+        private uint _wmAlreadyRunning;
         private bool _lastShowWarning;
         private bool _trayUsesVersion4;
         private bool _cleanedUp;
@@ -234,9 +249,22 @@ namespace Uptime
             _appMutex = new Mutex(true, "Uptime_SingleInstanceMutex", out bool createdNew);
             if (!createdNew)
             {
-                // Another instance is already running, exit immediately
+                // Another instance is already running. Unless this is a duplicate sign-in launch, ask it to tell the
+                // user where it is (the tray icon is often tucked away in the overflow area), then exit.
                 _appMutex.Dispose();
                 _appMutex = null;
+
+                bool isAutostart = e.Args.Any(a => a.Equals(AutostartArgument, StringComparison.OrdinalIgnoreCase)
+                                                   || a.Equals("--autostart", StringComparison.OrdinalIgnoreCase));
+                if (!isAutostart)
+                {
+                    IntPtr running = FindWindow(TrayWindowClass, null);
+                    if (running != IntPtr.Zero)
+                    {
+                        PostMessage(running, RegisterWindowMessage(AlreadyRunningMessageName), IntPtr.Zero, IntPtr.Zero);
+                    }
+                }
+
                 Environment.Exit(0);
                 return;
             }
@@ -252,18 +280,23 @@ namespace Uptime
                 cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
                 lpfnWndProc = _wndProc,
                 hInstance = hInstance,
-                lpszClassName = "UptimeTrayMsgWindow"
+                lpszClassName = TrayWindowClass
             };
             RegisterClassEx(ref wcex);
 
             // Create a hidden top-level window (parent = IntPtr.Zero)
             // This is required because Shell_NotifyIcon tooltips do not work with message-only (HWND_MESSAGE) windows
             _messageWindow = CreateWindowEx(
-                0, "UptimeTrayMsgWindow", "Uptime", 0,
+                0, TrayWindowClass, "Uptime", 0,
                 0, 0, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
             _wmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
+            _wmAlreadyRunning = RegisterWindowMessage(AlreadyRunningMessageName);
+
+            // Let these through even if this instance runs elevated and the sender doesn't (UIPI)
+            ChangeWindowMessageFilterEx(_messageWindow, _wmTaskbarCreated, MSGFLT_ALLOW, IntPtr.Zero);
+            ChangeWindowMessageFilterEx(_messageWindow, _wmAlreadyRunning, MSGFLT_ALLOW, IntPtr.Zero);
 
             bool isLightTheme = IsSystemLightTheme();
             _lastIsLightTheme = isLightTheme;
@@ -378,6 +411,14 @@ namespace Uptime
                 else if (msg == WM_SETTINGCHANGE)
                 {
                     UpdateTrayIcon(_lastShowWarning);
+                }
+                else if (_wmAlreadyRunning != 0 && msg == _wmAlreadyRunning)
+                {
+                    TimeSpan uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+                    ShowBalloonNotification("Uptime is already running",
+                        $"Your PC has been up for {FormatUptime(uptime)}. Find the clock icon in the notification area; if it's hidden, select the ^ arrow on the taskbar.",
+                        NIIF_INFO);
+                    return IntPtr.Zero;
                 }
             }
             catch { }
@@ -573,7 +614,7 @@ namespace Uptime
                 if (enable)
                 {
                     string appPath = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "Uptime.exe");
-                    key.SetValue(AppRegistryName, $"\"{appPath}\"");
+                    key.SetValue(AppRegistryName, $"\"{appPath}\" {AutostartArgument}");
                     key.DeleteValue(LegacyAppRegistryName, false);
                 }
                 else
@@ -688,14 +729,14 @@ namespace Uptime
             catch { /* Ignore event log failures if the source isn't registered and we're not admin */ }
         }
 
-        private void ShowBalloonNotification(string title, string message)
+        private void ShowBalloonNotification(string title, string message, uint iconFlag = NIIF_WARNING)
         {
             try
             {
                 _nid.uFlags = NIF_INFO;
                 _nid.szInfoTitle = title;
                 _nid.szInfo = message;
-                _nid.dwInfoFlags = NIIF_WARNING;
+                _nid.dwInfoFlags = iconFlag;
                 Shell_NotifyIcon(NIM_MODIFY, ref _nid);
             }
             catch { }
@@ -775,6 +816,16 @@ namespace Uptime
             }
 
             UpdateTrayIcon(showWarning);
+        }
+
+        /// <summary>"3 days, 4 hours" (or "25 minutes" in the first hour).</summary>
+        private static string FormatUptime(TimeSpan uptime)
+        {
+            static string Unit(int n, string word) => n == 1 ? $"1 {word}" : $"{n} {word}s";
+
+            if (uptime.TotalHours < 1) return Unit(uptime.Minutes, "minute");
+            if (uptime.TotalDays < 1) return $"{Unit(uptime.Hours, "hour")}, {Unit(uptime.Minutes, "minute")}";
+            return $"{Unit(uptime.Days, "day")}, {Unit(uptime.Hours, "hour")}";
         }
 
         // ── Icon rendering ──

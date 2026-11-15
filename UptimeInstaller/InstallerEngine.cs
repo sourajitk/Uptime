@@ -29,6 +29,9 @@ namespace UptimeInstaller
         // A copy of this installer kept in the install folder, so Uptime can be removed from Settings > Apps
         public const string UninstallerFileName = "Uninstall.exe";
 
+        // Passed by the Run entry so a duplicate launch at sign-in stays quiet (see the app's single-instance handling)
+        private const string AutostartArgument = "/autostart";
+
         // Only these files are ever deleted from an install folder. The folder may be user-chosen (e.g. an
         // existing directory), so it must never be wiped wholesale.
         private static readonly string[] InstalledFileNames = { "Uptime.exe", "UptimeTaskbarApp.exe", UninstallerFileName };
@@ -707,7 +710,7 @@ namespace UptimeInstaller
 
                 if (enable)
                 {
-                    key.SetValue(AppName, $"\"{exePath}\"");
+                    key.SetValue(AppName, $"\"{exePath}\" {AutostartArgument}");
                 }
                 else
                 {
