@@ -19,6 +19,7 @@ namespace UptimeInstaller
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string AppName = "Uptime";
         private const string LegacyAppName = "UptimeTaskbarApp";
+        private const string EventSource = "Uptime";
 
         // Only these files are ever deleted from an install folder. The folder may be user-chosen (e.g. an
         // existing directory), so it must never be wiped wholesale.
@@ -268,6 +269,7 @@ namespace UptimeInstaller
 
             progress?.Invoke("Configuring startup settings...", 90);
             ConfigureStartup(targetExePath, enableStartup, isAllUsers);
+            RegisterEventLogSource();
 
             progress?.Invoke("Finalizing...", 100);
 
@@ -294,6 +296,10 @@ namespace UptimeInstaller
             {
                 RemoveInstalledFiles(installPath);
                 RemoveDirectoryIfEmpty(installPath);
+            }
+            if (isAllUsers)
+            {
+                UnregisterEventLogSource();
             }
 
             progress?.Invoke("Finalizing...", 100);
@@ -512,7 +518,7 @@ namespace UptimeInstaller
             }
         }
 
-        // ── Registry ──
+        // ── Registry / Event Log ──
         public void ConfigureStartup(string exePath, bool enable, bool isAllUsers)
         {
             SetRunEntry(Registry.CurrentUser, exePath, enable && !isAllUsers);
@@ -537,6 +543,33 @@ namespace UptimeInstaller
                 key.DeleteValue(LegacyAppName, false);
             }
             catch { /* e.g. HKLM without administrator rights */ }
+        }
+
+        /// <summary>Registers the "Uptime" Event Log source so the app can write Event ID 1001 without administrator rights.</summary>
+        private static void RegisterEventLogSource()
+        {
+            if (!IsAdministrator()) return;
+            try
+            {
+                if (!EventLog.SourceExists(EventSource))
+                {
+                    EventLog.CreateEventSource(EventSource, "Application");
+                }
+            }
+            catch { }
+        }
+
+        private static void UnregisterEventLogSource()
+        {
+            if (!IsAdministrator()) return;
+            try
+            {
+                if (EventLog.SourceExists(EventSource))
+                {
+                    EventLog.DeleteEventSource(EventSource);
+                }
+            }
+            catch { }
         }
     }
 
