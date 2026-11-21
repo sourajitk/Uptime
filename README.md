@@ -27,6 +27,9 @@ Run `Uptime-vX.Y.Z-Setup-win-x64.exe` (or `-win-arm64.exe`) and follow the wizar
 
 To uninstall, open **Settings › Apps › Installed apps**, find **Uptime** and select **Uninstall**.
 
+### Portable
+`Uptime-vX.Y.Z-Portable-win-x64.exe` (or `-win-arm64.exe`) runs without installing anything, and has the .NET runtime built in. Put it anywhere and run it.
+
 ### Silent Enterprise Installation
 For mass deployment via IT administration software (Intune, SCCM, PDQ Deploy, GPO):
 
