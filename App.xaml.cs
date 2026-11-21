@@ -14,7 +14,7 @@ namespace Uptime
 {
     public partial class App : Application
     {
-        // ── Win32 P/Invoke ──
+        // Win32 P/Invoke
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
@@ -98,7 +98,7 @@ namespace Uptime
 
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-        // ── Structures ──
+        // Structures
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct NOTIFYICONDATA
         {
@@ -146,7 +146,7 @@ namespace Uptime
             public int Y;
         }
 
-        // ── Constants ──
+        // Constants
         private const uint NIM_ADD = 0x00;
         private const uint NIM_MODIFY = 0x01;
         private const uint NIM_DELETE = 0x02;
@@ -218,7 +218,7 @@ namespace Uptime
         // Preset restart-reminder choices offered in the tray menu (0 = never).
         private static readonly int[] ThresholdChoices = { 3, 7, 14, 30 };
 
-        // ── Fields ──
+        // Fields
         private IntPtr _messageWindow;
         private NOTIFYICONDATA _nid;
         private IntPtr _iconHandle;
@@ -356,7 +356,7 @@ namespace Uptime
             Environment.Exit(0);
         }
 
-        // ── Tray icon plumbing ──
+        // Tray icon plumbing
         private void AddTrayIcon()
         {
             // Remove first: TaskbarCreated is also broadcast on DPI changes, when our icon still exists and NIM_ADD would fail.
@@ -440,20 +440,20 @@ namespace Uptime
             _isMenuOpen = true;
             try
             {
-                // ── Start at login ──
+                // Start at login
                 // A machine-wide (HKLM) entry can't be toggled from a standard user session.
                 bool startupManagedSystemWide = IsStartupEnabledSystemWide();
                 bool startsAtLogin = startupManagedSystemWide || IsStartupEnabledForUser();
                 AppendMenu(menu, MF_STRING | (startsAtLogin ? MF_CHECKED : 0) | (startupManagedSystemWide ? MF_GRAYED : 0),
                     (UIntPtr)CmdStartAtLogin, startupManagedSystemWide ? "&Start at login (all users)" : "&Start at login");
 
-                // ── Restart reminder (submenu with radio choices) ──
+                // Restart reminder (submenu with radio choices)
                 AppendMenu(menu, MF_POPUP, (UIntPtr)(ulong)BuildThresholdMenu(), "Restart &reminder");
 
                 AppendMenu(menu, MF_SEPARATOR, UIntPtr.Zero, null);
                 AppendMenu(menu, MF_STRING, (UIntPtr)CmdRestart, "Restart &computer…");
 
-                // ── About (submenu) ──
+                // About (submenu)
                 AppendMenu(menu, MF_SEPARATOR, UIntPtr.Zero, null);
                 IntPtr about = CreatePopupMenu();
                 AppendMenu(about, MF_STRING | MF_GRAYED, UIntPtr.Zero, $"Uptime {GetAppVersion()}");
@@ -587,7 +587,7 @@ namespace Uptime
             catch { /* Ignore url launch failure */ }
         }
 
-        // ── Startup registration ──
+        // Startup registration
         private static bool HasStartupEntry(RegistryKey root)
         {
             try
@@ -626,7 +626,7 @@ namespace Uptime
             catch { }
         }
 
-        // ── Threshold / policy ──
+        // Threshold / policy
         private static int? ReadDays(RegistryKey root, params string[] subKeys)
         {
             foreach (string subKey in subKeys)
@@ -685,7 +685,7 @@ namespace Uptime
             }
         }
 
-        // ── Notifications ──
+        // Notifications
         private DateTime GetLastNotificationTime()
         {
             if (_lastNotificationTime != DateTime.MinValue) return _lastNotificationTime;
@@ -775,7 +775,7 @@ namespace Uptime
             }
         }
 
-        // ── Periodic update ──
+        // Periodic update
         private void UpdateUptime()
         {
             TimeSpan uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
@@ -828,7 +828,7 @@ namespace Uptime
             return $"{Unit(uptime.Days, "day")}, {Unit(uptime.Hours, "hour")}";
         }
 
-        // ── Icon rendering ──
+        // Icon rendering
         private static bool IsSystemLightTheme()
         {
             try
@@ -980,7 +980,7 @@ namespace Uptime
             return string.IsNullOrWhiteSpace(text) ? "Sourajit Karmakar" : text.Replace("Copyright (c)", "©");
         }
 
-        // ── Shutdown ──
+        // Shutdown
         private void Cleanup()
         {
             if (_cleanedUp) return;

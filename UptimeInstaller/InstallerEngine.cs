@@ -66,7 +66,7 @@ namespace UptimeInstaller
             return IsAllUsers ? DefaultAllUsersPath : DefaultCurrentUserPath;
         }
 
-        // ── Command line ──
+        // Command line
         private static bool TryGetValue(string arg, out string value, params string[] prefixes)
         {
             foreach (string prefix in prefixes)
@@ -169,7 +169,7 @@ namespace UptimeInstaller
             return $"/dir=\"{dir}\"";
         }
 
-        // ── Privileges ──
+        // Privileges
         public static bool IsAdministrator()
         {
             try
@@ -241,7 +241,7 @@ namespace UptimeInstaller
             }
         }
 
-        // ── Silent mode ──
+        // Silent mode
         public int RunSilent()
         {
             try
@@ -272,7 +272,7 @@ namespace UptimeInstaller
             }
         }
 
-        // ── Install / uninstall ──
+        // Install / uninstall
         public void PerformInstall(string installPath, bool enableStartup, bool isAllUsers, bool launchApp, Action<string, int>? progress = null)
         {
             progress?.Invoke("Closing running instances...", 10);
@@ -342,7 +342,7 @@ namespace UptimeInstaller
             progress?.Invoke("Finalizing...", 100);
         }
 
-        // ── Settings > Apps registration ──
+        // Settings > Apps registration
         private static string? RunningExePath
         {
             get
@@ -572,7 +572,7 @@ namespace UptimeInstaller
             resourceStream.CopyTo(fileStream);
         }
 
-        // ── Existing installation ──
+        // Existing installation
         private static string? ReadRunEntry(RegistryKey root)
         {
             try
@@ -635,7 +635,7 @@ namespace UptimeInstaller
             return null;
         }
 
-        // ── Shortcuts ──
+        // Shortcuts
         public void CreateStartMenuShortcut(string exePath, string workingDir, bool isAllUsers)
         {
             try
@@ -694,7 +694,7 @@ namespace UptimeInstaller
             }
         }
 
-        // ── Registry / Event Log ──
+        // Registry / Event Log
         public void ConfigureStartup(string exePath, bool enable, bool isAllUsers)
         {
             SetRunEntry(Registry.CurrentUser, exePath, enable && !isAllUsers);
@@ -749,7 +749,7 @@ namespace UptimeInstaller
         }
     }
 
-    // ── Native Windows COM Shortcut Helper ──
+    // Native Windows COM Shortcut Helper
     internal static class ShellLinkHelper
     {
         [ComImport]
